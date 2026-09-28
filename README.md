@@ -39,9 +39,10 @@ A ZIP install does not update itself: download a newer release to update.
 
 ## What we measure
 
-We count **downloads only**, from GitHub's side: the number of git clones of this
-repository and the download count of each release ZIP. A scheduled GitHub Action saves
-those numbers once a day. The add-in itself sends nothing.
+We only use the aggregate numbers GitHub already reports for this repository: git
+clones, page views, the sites that link here, the most viewed pages, release ZIP
+downloads, and stars, forks and watchers. None of them identifies anyone. A scheduled
+GitHub Action saves them once a day. The add-in itself sends nothing.
 
 ## License
 

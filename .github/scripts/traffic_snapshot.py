@@ -1,20 +1,28 @@
-"""Save GitHub download numbers for this repository as CSV files.
+"""Save GitHub download and traffic numbers for this repository as CSV.
 
-Writes three files into the output folder (the traffic-data branch):
+Writes these files into the output folder (the traffic-data branch):
 
-- clones.csv: one row per day, git clones (count and unique cloners).
-  GitHub only keeps the last 14 days, so each run rewrites the days it
-  returns and keeps the older ones.
-- views.csv: same shape, for page views of the repository.
-- release_downloads.csv: one row per release asset per run, with the
-  cumulative download_count at that moment. Rows are daily snapshots, so
-  the evolution can be plotted, not only the current total.
+Per day (GitHub keeps only the last 14 days, so each run rewrites the days
+it returns and keeps the older ones):
+
+- clones.csv: git clones (count and unique cloners).
+- views.csv: page views of the repository (count and unique visitors).
+
+Daily snapshots (one set of rows per run date; a rerun on the same day
+replaces that day's rows, so the evolution can be plotted over time):
+
+- release_downloads.csv: cumulative download_count of each release asset.
+- referrers.csv: top 10 sites that sent visitors, over the last 14 days.
+- paths.csv: top 10 pages of the repository viewed, over the last 14 days.
+- repo_stats.csv: stars, forks, watchers and open issues.
+
+Everything is aggregate: GitHub reports no identities for any of these.
 
 Environment:
   GITHUB_REPOSITORY  owner/repo (set by GitHub Actions)
   TRAFFIC_TOKEN      token with read access to repository administration
                      (traffic endpoints reject the default GITHUB_TOKEN)
-  GITHUB_TOKEN       default Actions token, used for the releases endpoint
+  GITHUB_TOKEN       default Actions token, used for the other endpoints
 """
 import csv
 import datetime
@@ -48,20 +56,35 @@ def get(path, token):
         raise
 
 
+def read_rows(path):
+    if not os.path.exists(path):
+        return []
+    with open(path, newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def write_rows(path, fields, rows):
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def merge_daily(path, rows):
     """Upsert rows keyed by date; keep dates GitHub no longer returns."""
-    by_date = {}
-    if os.path.exists(path):
-        with open(path, newline="") as f:
-            for row in csv.DictReader(f):
-                by_date[row["date"]] = row
+    by_date = {r["date"]: r for r in read_rows(path)}
     for row in rows:
         by_date[row["date"]] = row
-    with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["date", "count", "uniques"])
-        writer.writeheader()
-        for date in sorted(by_date):
-            writer.writerow(by_date[date])
+    write_rows(path, ["date", "count", "uniques"],
+               [by_date[d] for d in sorted(by_date)])
+
+
+def snapshot(path, fields, rows, today):
+    """Append today's rows, replacing any earlier run of the same day."""
+    kept = [r for r in read_rows(path) if r["snapshot_date"] != today]
+    for row in rows:
+        row["snapshot_date"] = today
+    write_rows(path, ["snapshot_date"] + fields, kept + rows)
 
 
 def traffic_rows(payload, key):
@@ -76,39 +99,47 @@ def main(out_dir):
     traffic_token = os.environ["TRAFFIC_TOKEN"]
     token = os.environ.get("GITHUB_TOKEN") or traffic_token
     today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+    out = lambda name: os.path.join(out_dir, name)
 
     clones = get("/repos/%s/traffic/clones?per=day" % repo, traffic_token)
-    merge_daily(os.path.join(out_dir, "clones.csv"),
-                traffic_rows(clones, "clones"))
+    merge_daily(out("clones.csv"), traffic_rows(clones, "clones"))
 
     views = get("/repos/%s/traffic/views?per=day" % repo, traffic_token)
-    merge_daily(os.path.join(out_dir, "views.csv"),
-                traffic_rows(views, "views"))
+    merge_daily(out("views.csv"), traffic_rows(views, "views"))
+
+    referrers = get("/repos/%s/traffic/popular/referrers" % repo,
+                    traffic_token)
+    snapshot(out("referrers.csv"), ["referrer", "count", "uniques"],
+             [{"referrer": r["referrer"], "count": r["count"],
+               "uniques": r["uniques"]} for r in referrers], today)
+
+    paths = get("/repos/%s/traffic/popular/paths" % repo, traffic_token)
+    snapshot(out("paths.csv"), ["path", "title", "count", "uniques"],
+             [{"path": p["path"], "title": p["title"], "count": p["count"],
+               "uniques": p["uniques"]} for p in paths], today)
 
     releases = get("/repos/%s/releases?per_page=100" % repo, token)
-    path = os.path.join(out_dir, "release_downloads.csv")
-    fields = ["snapshot_date", "tag", "asset", "download_count"]
-    rows = []
-    if os.path.exists(path):
-        with open(path, newline="") as f:
-            # one snapshot per day: a rerun replaces today's rows
-            rows = [r for r in csv.DictReader(f)
-                    if r["snapshot_date"] != today]
-    for rel in releases:
-        for asset in rel.get("assets", []):
-            rows.append({"snapshot_date": today,
-                         "tag": rel["tag_name"],
-                         "asset": asset["name"],
-                         "download_count": asset["download_count"]})
-    with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(rows)
+    assets = [{"tag": rel["tag_name"],
+               "asset": asset["name"],
+               "download_count": asset["download_count"]}
+              for rel in releases for asset in rel.get("assets", [])]
+    snapshot(out("release_downloads.csv"),
+             ["tag", "asset", "download_count"], assets, today)
+
+    info = get("/repos/%s" % repo, token)
+    snapshot(out("repo_stats.csv"),
+             ["stars", "forks", "watchers", "open_issues"],
+             [{"stars": info["stargazers_count"],
+               "forks": info["forks_count"],
+               "watchers": info.get("subscribers_count", ""),
+               "open_issues": info["open_issues_count"]}], today)
 
     print("clones (14 days): %s total, %s unique" %
           (clones.get("count"), clones.get("uniques")))
-    print("release assets tracked today: %d" %
-          sum(1 for r in rows if r["snapshot_date"] == today))
+    print("views (14 days): %s total, %s unique" %
+          (views.get("count"), views.get("uniques")))
+    print("referrers: %d, paths: %d, release assets: %d" %
+          (len(referrers), len(paths), len(assets)))
 
 
 if __name__ == "__main__":
