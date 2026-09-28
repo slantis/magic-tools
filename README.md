@@ -28,7 +28,7 @@ update later, use pyRevit's **Update** button.
 
 ### With a ZIP (no automatic updates)
 
-1. Download `MagicTools.extension.zip` from the latest
+1. Download `magic-tools.zip` from the latest
    [release](https://github.com/slantis/magic-tools/releases).
 2. Unzip it into a folder pyRevit loads custom extensions from, for example
    `%APPDATA%\pyRevit\Extensions`, so you end up with

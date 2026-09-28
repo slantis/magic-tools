@@ -1,8 +1,8 @@
 name: Release
 
-# On a version tag (v0.1.0, v1.2.3...), build MagicTools.extension.zip and
-# attach it to a GitHub release. The ZIP is uploaded as a release asset of
-# its own, not left to GitHub's automatic "Source code (zip)", because only
+# On a version tag (v0.1.0, v1.2.3...), build magic-tools.zip (it holds a
+# MagicTools.extension/ folder) and attach it to a GitHub release. The ZIP
+# is uploaded as a release asset of its own, not left to GitHub's automatic "Source code (zip)", because only
 # an uploaded asset has a download_count the stats workflow can read.
 
 on:
@@ -24,11 +24,11 @@ jobs:
         # in .gitattributes stay out of the ZIP.
         run: |
           git archive --format=zip --prefix=MagicTools.extension/ \
-            -o MagicTools.extension.zip "$GITHUB_REF_NAME"
+            -o magic-tools.zip "$GITHUB_REF_NAME"
 
       - name: Create the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" MagicTools.extension.zip \
+          gh release create "$GITHUB_REF_NAME" magic-tools.zip \
             --title "$GITHUB_REF_NAME" --generate-notes

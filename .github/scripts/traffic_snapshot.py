@@ -21,6 +21,7 @@ import datetime
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 
 API = "https://api.github.com"
@@ -32,8 +33,19 @@ def get(path, token):
         "Authorization": "Bearer " + token,
         "X-GitHub-Api-Version": "2022-11-28",
     })
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.load(resp)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.load(resp)
+    except urllib.error.HTTPError as err:
+        if err.code in (401, 403, 404) and "/traffic/" in path:
+            # GitHub answers 404, not 403, when a token cannot see a
+            # private repository, so a bad token looks like a wrong URL.
+            sys.exit("Traffic API returned %d for %s. TRAFFIC_TOKEN has no "
+                     "access to this repository: it must be a fine-grained "
+                     "token owned by the repository's organization, "
+                     "approved by it if required, with Administration: "
+                     "Read-only on this repository." % (err.code, path))
+        raise
 
 
 def merge_daily(path, rows):
