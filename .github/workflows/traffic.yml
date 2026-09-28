@@ -1,0 +1,51 @@
+name: Download stats
+
+# Once a day, save git clones, page views and release ZIP downloads as CSV
+# files on the traffic-data branch. GitHub keeps clone and view traffic for
+# 14 days only, so a missed run older than that is lost.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"   # 03:17 UTC every day
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: traffic-data
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out the traffic-data branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin traffic-data > /dev/null; then
+            git fetch origin traffic-data
+            git worktree add -B traffic-data data origin/traffic-data
+          else
+            git worktree add --orphan -b traffic-data data
+          fi
+
+      - name: Save snapshot
+        env:
+          TRAFFIC_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/traffic_snapshot.py data
+
+      - name: Commit and push
+        working-directory: data
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes."
+          else
+            git commit -m "data: download stats $(date -u +%F)"
+            git push origin traffic-data
+          fi

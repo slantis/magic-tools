@@ -1,0 +1,12 @@
+slantisui (the /slantis WPF design system)
+packs: slantisui
+master: d575157 2026-09-10
+source: copied from slantis/magictools.extension, branch qa/open-source-polish,
+        commit 19e94a5 (2026-09-26), on 2026-09-28.
+
+This copy is frozen: it is not re-vendored from an upstream master.
+Only change against the source: comments translated to English
+(lib/slantisui/ui.py). No code was changed.
+
+fonts/DMSans-*.ttf are licensed under the SIL Open Font License 1.1,
+see fonts/OFL.txt.

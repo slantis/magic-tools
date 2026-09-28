@@ -1,0 +1,13 @@
+{
+  "builtin": false,
+  "type": "extension",
+  "rocket_mode_compatible": true,
+  "name": "Magic Tools",
+  "description": "Open source pyRevit tools for Revit model cleanup, selection and documentation",
+  "author": "Slantis",
+  "author_profile": "https://github.com/slantis",
+  "url": "https://github.com/slantis/magic-tools.git",
+  "website": "https://github.com/slantis/magic-tools",
+  "image": "",
+  "dependencies": []
+}

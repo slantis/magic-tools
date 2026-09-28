@@ -1,0 +1,26 @@
+# Content License (non-code)
+
+The code in this repository is licensed under MIT (see [`LICENSE`](LICENSE)).
+
+Everything that is **not** code — icons and other visual assets, documentation (README,
+guides, screenshots), and the "Magic Tools" name/brand — is licensed under:
+
+**Creative Commons Attribution 4.0 International (CC BY 4.0)**
+Copyright (c) 2026 Slantis LLC
+
+Full license text: https://creativecommons.org/licenses/by/4.0/legalcode
+Human-readable summary: https://creativecommons.org/licenses/by/4.0/
+
+In short, you are free to share and adapt this material for any purpose, even commercially,
+as long as you give appropriate credit to Slantis LLC, include a link to the license, and
+indicate if changes were made.
+
+## Exceptions
+
+- **DM Sans fonts** (`lib/slantisui/fonts/DMSans-Regular.ttf`, `DMSans-Medium.ttf`,
+  `DMSans-Bold.ttf`): owned by The DM Sans Project Authors (a Google Fonts font), licensed
+  under the **SIL Open Font License 1.1**, not under CC BY 4.0 or MIT. The OFL requires its
+  full text to travel alongside the font when redistributed — the `OFL.txt` file lives in
+  `lib/slantisui/fonts/OFL.txt`, next to the `.ttf` files, and that file governs their use.
+- Any other third-party asset vendored into the repo keeps its original license if different
+  from CC BY 4.0 — noted next to the relevant file or folder.

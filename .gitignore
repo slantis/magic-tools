@@ -1,0 +1,11 @@
+# Windows / Google Drive folder metadata
+desktop.ini
+Thumbs.db
+
+# Python
+*.pyc
+__pycache__/
+
+# Editors
+.vscode/
+.idea/
