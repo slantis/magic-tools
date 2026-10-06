@@ -4,12 +4,14 @@ from __future__ import unicode_literals
 import hashlib
 import io
 import os
+import re
 import shutil
 import stat
 import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zlib
 
@@ -314,6 +316,27 @@ class XamlRules(unittest.TestCase):
         self.assertEqual(self.check('<Image Source="pack://application:,,,/a.png"/>'
                                     '<TextBlock Text="Pick a file: any"/>'), [])
 
+    def test_unprefixed_directives(self):
+        for body in ['<s:Object><Arguments><x:String>calc</x:String></Arguments></s:Object>',
+                     '<s:Object FactoryMethod="Start"/>']:
+            self.assertIn('xaml', rules(self.check(body)), body)
+
+    def test_escaped_quotes_do_not_end_a_tag_early(self):
+        for body in ['<Grid Tag="&quot;>" Name="{x:Type m:XamlReader}"/>',
+                     '<Grid Tag="&#34;>" Name="{x:Type m:XamlReader}"/>',
+                     "<Grid Tag='&apos;>' Name=\"{x:Type m:XamlReader}\"/>"]:
+            self.assertIn('xaml', rules(self.check(body)), body)
+
+    def test_escaped_markup_in_a_value_is_text(self):
+        self.assertEqual(self.check('<TextBlock Text="&lt;x:Code&gt;"/>'), [])
+
+    def test_more_unc_forms(self):
+        for body in ['<Image Source="\\/host\\share\\a.png"/>',
+                     '<Image Source="/\\host\\share\\a.png"/>',
+                     '<Image><Image.Source>//host/share/a.png</Image.Source></Image>',
+                     '<Image><Image.Source>\\\\host\\share\\a.png</Image.Source></Image>']:
+            self.assertIn('xaml', rules(self.check(body)), body)
+
     def test_xaml_2009_factory_calls(self):
         for body in ['<s:Object x:FactoryMethod="s:Process.Start"/>',
                      '<s:Object X:factorymethod="Start"/>',
@@ -379,6 +402,9 @@ class SvgRules(unittest.TestCase):
                      '<use xlink:href="h\nttp://evil.example/a.svg#x"/>',
                      '<image href="&#100;ata:image/png;base64,AAAA"/>']:
             self.assertIn('svg', rules(self.check(body)), body)
+
+    def test_escaped_markup_in_text_is_text(self):
+        self.assertEqual(self.check('<text>&lt;script&gt;alert(1)&lt;/script&gt;</text>'), [])
 
     def test_prefixed_script_element(self):
         for body in ['<svg:script>alert(1)</svg:script>', '<x:SCRIPT>alert(1)</x:SCRIPT>']:
@@ -483,6 +509,77 @@ class RepoRules(unittest.TestCase):
             self.skipTest('symlinks cannot be created here')
         self.assertEqual([(f.path, f.rule, f.message) for f in self.check()],
                          [('lib/b.py', 'file-type', 'symlinks are not allowed')])
+
+
+PATTERN_TYPE = type(re.compile(''))
+
+
+def _patterns(value):
+    """Compiled patterns in a module value, including those nested in tuples."""
+    if isinstance(value, PATTERN_TYPE):
+        return [value]
+    if isinstance(value, (tuple, list)):
+        return [pattern for item in value for pattern in _patterns(item)]
+    return []
+
+
+def _scan(pattern):
+    return lambda text: list(pattern.finditer(text))
+
+
+class Timing(unittest.TestCase):
+    """A crafted file must not stall the gate: every pattern runs in linear time."""
+
+    SIZE = 200 * 1024
+    LIMIT = 1.0  # seconds
+
+    def inputs(self):
+        n = self.SIZE
+        return {
+            'one tag, one long word': '<' + 'a' * n,
+            'long word run': 'a' * n,
+            'tags of long words': ('<' + 'a' * 99) * (n // 100),
+            'prefixed long words': ('<' + 'a' * 99 + ':') * (n // 101),
+            'alternating quotes': '"\'' * (n // 2),
+            'one tag of alternating quotes': '<' + '"\'' * (n // 2),
+            'open tags and quotes': '<"' * (n // 2),
+            'values left open': ('<a="' + "b='") * (n // 8),
+            'repeated clr-namespace': 'clr-namespace:' * (n // 14),
+            'reference digits': '&#' + '0' * n,
+            'references': '&#1' * (n // 3),
+            'backslashes': '\\' * n,
+            'slashes': '/' * n,
+            'equals and spaces': '=' + ' ' * n,
+            'repeated scheme': 'http://' * (n // 7),
+            'words starting with on': ' on' * (n // 3),
+            'base64 runs just short': ('A' * 99 + ' ') * (n // 100),
+            'hex runs just short': ('a' * 79 + ' ') * (n // 80),
+            'many findings on many lines': '<script <x:Code\n' * (n // 16),
+        }
+
+    def slow(self, label, run):
+        found = []
+        for name, text in sorted(self.inputs().items()):
+            start = time.time()
+            run(text)
+            elapsed = time.time() - start
+            if elapsed > self.LIMIT:
+                found.append('{0} on "{1}": {2:.1f}s'.format(label, name, elapsed))
+        return found
+
+    def test_every_pattern_is_linear(self):
+        slow = []
+        for name, value in sorted(vars(pc).items()):
+            for pattern in _patterns(value):
+                slow.extend(self.slow('{0} {1!r}'.format(name, pattern.pattern), _scan(pattern)))
+        self.assertEqual(slow, [])
+
+    def test_checks_are_linear(self):
+        slow = self.slow('xaml', lambda text: pc.check_xaml_source('a.xaml', text, CONFIG))
+        slow += self.slow('svg', lambda text: pc.check_svg_source('a.svg', text))
+        slow += self.slow('python', lambda text: pc.check_python_source(
+            'a.py', 'X = %r\n' % ('xmlns ' + text), CONFIG))
+        self.assertEqual(slow, [])
 
 
 def _force_remove(func, path, _exc_info):

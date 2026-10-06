@@ -31,6 +31,7 @@ from __future__ import print_function
 
 import argparse
 import ast
+import bisect
 import json
 import os
 import re
@@ -99,27 +100,36 @@ HTTP_URL = re.compile(r'https?://', re.I)
 
 # --- XAML and SVG rules -------------------------------------------------------
 # Both are matched as text after decoding character references, so
-# "&#104;ttp://" reads as "http://" and "&#97;ssembly=" as "assembly=".
+# "&#104;ttp://" reads as "http://" and "&#97;ssembly=" as "assembly=". The
+# rules about tags read a second decoding where escaped quotes and angle
+# brackets are a space: escaped markup is text, and opens or closes nothing.
+# Every pattern here must run in linear time (the Timing tests check it): a
+# crafted file must not stall the gate.
 
-XML_REFERENCE = re.compile(r'&(?:#([0-9]+)|#[xX]([0-9A-Fa-f]+)|(amp|lt|gt|quot|apos));')
+# Significant digits are bounded (a longer reference is no character); zeros are not.
+XML_REFERENCE = re.compile(
+    r'&(?:#0*([0-9]{1,8})|#[xX]0*([0-9A-Fa-f]{1,8})|(amp|lt|gt|quot|apos));')
 XML_ENTITIES = {'amp': u'&', 'lt': u'<', 'gt': u'>', 'quot': u'"', 'apos': u"'"}
+MARKUP_CHARS = u'"\'<>'
 # Browsers drop these inside a URL scheme ("java<TAB>script:"), so the scheme
 # patterns let them sit between any two characters.
 SCHEME_NOISE = re.compile(r'[\t\r\n\x00]')
+NEWLINE = re.compile(r'\n')
 
 
 def _scheme(word):
     return (SCHEME_NOISE.pattern + '*').join(re.escape(char) for char in word)
 
 
-XAML_FORBIDDEN = (
+# Read with escaped quotes and angle brackets neutralised.
+XAML_TAG_RULES = (
     (re.compile(r'ObjectDataProvider', re.I), 'ObjectDataProvider'),
     # x:Code, under whatever prefix the XAML namespace is bound to.
     (re.compile(r'<\s*[\w.-]+:Code\b', re.I), 'x:Code'),
     # XAML 2009 factory calls, which XamlReader honours: they can call any static
     # method, such as Process.Start, of a type from an allowed assembly.
-    (re.compile(r'[\w.-]+:FactoryMethod\b', re.I), 'x:FactoryMethod'),
-    (re.compile(r'[\w.-]+:Arguments\b', re.I), 'x:Arguments'),
+    (re.compile(r'\bFactoryMethod\b', re.I), 'x:FactoryMethod'),
+    (re.compile(r'<\s*(?:[\w.-]+:)?Arguments\b|:Arguments\b', re.I), 'x:Arguments'),
     # XamlReader inside a tag (such as {x:Type m:XamlReader}); prose that names
     # it, in a comment or in a Python docstring next to xmlns, is not markup.
     # Quoted values are skipped whole, so a '>' inside one does not end the tag.
@@ -127,11 +137,17 @@ XAML_FORBIDDEN = (
                 re.I), 'XamlReader'),
     (re.compile(r'<!DOCTYPE', re.I), '<!DOCTYPE'),
     (re.compile(r'<!ENTITY', re.I), '<!ENTITY'),
-    (re.compile(r'\\\\[^\\/\s"\'<>]+[\\/]'), 'UNC path'),
-    (re.compile(r'=\s*["\']\s*' + _scheme('//')), 'protocol-relative or UNC path'),
+    # A value or element text that starts with // or \\ (protocol-relative or UNC).
+    (re.compile(r'(?:=\s*["\']|>)\s*(?:\\\\|{0})[^\\/\s"\'<>]'.format(_scheme('//'))),
+     'protocol-relative or UNC path'),
+)
+# Read fully decoded.
+XAML_VALUE_RULES = (
+    # UNC paths, also with mixed slashes: \\host\, \/host\, /\host\.
+    (re.compile(r'(?:\\\\|\\/|/\\)[^\\/\s"\'<>]+[\\/]'), 'UNC path'),
 )
 XAML_CLR_ASSEMBLY = re.compile(
-    r'clr-namespace:[^;"\'<>]*;\s*assembly\s*=\s*([^"\'\s;,<>]*)', re.I)
+    r'clr-namespace:[^;"\'<>\s:]*\s*;\s*assembly\s*=\s*([^"\'\s;,<>]*)', re.I)
 XAML_CLR_NAMESPACE = re.compile(r'clr-namespace:\s*([\w.]*)', re.I)
 # Namespaces whose types run processes, load code, reach the network, the file
 # system or the registry: not reachable from XAML, whatever the assembly.
@@ -145,11 +161,15 @@ XAML_URI = re.compile(r'\b(?:(?:{0})[^\s"\'<>]*|{1}[^\s"\'<>]+)'.format(
 XAML_NAMESPACE_PREFIX = 'http://schemas.microsoft.com/'
 XAML_NAMESPACES = ('http://schemas.openxmlformats.org/markup-compatibility/2006',)
 
-SVG_FORBIDDEN = (
+# Read with escaped quotes and angle brackets neutralised.
+SVG_TAG_RULES = (
     (re.compile(r'<(?:[\w.-]+:)?script', re.I), '<script> element'),
     (re.compile(r'<foreignObject', re.I), '<foreignObject> element'),
     (re.compile(r'<!ENTITY', re.I), 'entity declaration'),
     (re.compile(r'\bon\w+\s*=', re.I), 'event handler attribute'),
+)
+# Read fully decoded.
+SVG_VALUE_RULES = (
     (re.compile(_scheme('javascript:'), re.I), 'javascript: URI'),
     (re.compile(r'\bhref\s*=\s*["\']?\s*(?:{0})'.format(
         '|'.join(_scheme(s) for s in ('http', '//', 'file:', 'data:'))), re.I),
@@ -167,14 +187,21 @@ def _describe(exc):
     return u' '.join(text.split())
 
 
-def _line_of(text, offset):
-    return text.count(u'\n', 0, offset) + 1
+def _line_numbers(text):
+    """A function from an offset in text to its 1-based line number."""
+    breaks = [m.start() for m in NEWLINE.finditer(text)]
+    return lambda offset: bisect.bisect_left(breaks, offset) + 1
 
 
-def _text_findings(relpath, text, problems, rule):
-    """Findings for (offset, message) problems found in a text file."""
-    hits = set((_line_of(text, offset), message) for offset, message in problems)
-    return [Finding(relpath, line, rule, message) for line, message in sorted(hits)]
+def _matches(text, rules, line_of):
+    """(line, message) for every match of the (pattern, what) rules in text."""
+    return [(line_of(m.start()), u'{0} is not allowed'.format(what))
+            for pattern, what in rules for m in pattern.finditer(text)]
+
+
+def _text_findings(relpath, problems, rule):
+    """Findings for (line, message) problems, sorted, without duplicates."""
+    return [Finding(relpath, line, rule, message) for line, message in sorted(set(problems))]
 
 
 def _hit_findings(relpath, hits):
@@ -182,23 +209,27 @@ def _hit_findings(relpath, hits):
     return [Finding(relpath, line, rule, message) for line, rule, message in sorted(set(hits))]
 
 
-def _decode_reference(match):
-    number, hexadecimal, name = match.groups()
-    if name:
-        return XML_ENTITIES[name]
-    try:
-        code = int(number) if number else int(hexadecimal, 16)
-        char = struct.pack('<I', code).decode('utf-32-le')
-    except (struct.error, OverflowError, ValueError):  # not a character
-        return u''
-    # Tab, CR, LF and NUL decode to nothing: line numbers stay put, and a
-    # scheme split by them is joined the way browsers join it.
-    return u'' if SCHEME_NOISE.match(char) else char
+def _decode_references(text, neutral=False):
+    """Text with numeric character references and the five XML entities decoded.
 
-
-def _decode_references(text):
-    """Text with numeric character references and the five XML entities decoded."""
-    return XML_REFERENCE.sub(_decode_reference, text)
+    Tab, CR, LF and NUL decode to nothing: line numbers stay put, and a scheme
+    split by them is joined the way browsers join it. With neutral, quotes and
+    angle brackets decode to a space.
+    """
+    def decode(match):
+        number, hexadecimal, name = match.groups()
+        if name:
+            char = XML_ENTITIES[name]
+        else:
+            code = int(number) if number else int(hexadecimal, 16)
+            try:
+                char = struct.pack('<I', code).decode('utf-32-le')
+            except ValueError:  # not a character
+                return u''
+        if SCHEME_NOISE.match(char):
+            return u''
+        return u' ' if neutral and char in MARKUP_CHARS else char
+    return XML_REFERENCE.sub(decode, text)
 
 
 # --- XAML ---------------------------------------------------------------------
@@ -215,40 +246,40 @@ def _risky_clr_namespace(namespace):
 
 
 def _xaml_problems(text, config):
-    """(offset, message) problems in text whose references are already decoded."""
+    """(line, message) for the XAML problems in text, references not yet decoded."""
+    neutral = _decode_references(text, neutral=True)
+    problems = _matches(neutral, XAML_TAG_RULES, _line_numbers(neutral))
+    text = _decode_references(text)
+    line_of = _line_numbers(text)
+    problems.extend(_matches(text, XAML_VALUE_RULES, line_of))
     allowed = set(name.lower() for name in config['assemblies'])
-    problems = []
-    for pattern, what in XAML_FORBIDDEN:
-        problems.extend((m.start(), u'{0} is not allowed'.format(what))
-                        for m in pattern.finditer(text))
     for m in XAML_CLR_ASSEMBLY.finditer(text):
         if m.group(1).lower() not in allowed:
-            problems.append((m.start(), u'clr-namespace from assembly "{0}", which is not in '
-                                        u'the policy'.format(m.group(1))))
+            problems.append((line_of(m.start()), u'clr-namespace from assembly "{0}", which is '
+                                                 u'not in the policy'.format(m.group(1))))
     for m in XAML_CLR_NAMESPACE.finditer(text):
         if _risky_clr_namespace(m.group(1)):
-            problems.append((m.start(), u'clr-namespace {0} is not allowed'.format(m.group(1))))
+            problems.append((line_of(m.start()),
+                             u'clr-namespace {0} is not allowed'.format(m.group(1))))
     for m in XAML_URI.finditer(text):
         uri = SCHEME_NOISE.sub(u'', m.group(0))
         if not _allowed_xaml_uri(uri):
-            problems.append((m.start(), u'external URI {0}'.format(uri)))
+            problems.append((line_of(m.start()), u'external URI {0}'.format(uri)))
     return problems
 
 
 def check_xaml_source(relpath, text, config):
-    text = _decode_references(text)
-    return _text_findings(relpath, text, _xaml_problems(text, config), 'xaml')
+    return _text_findings(relpath, _xaml_problems(text, config), 'xaml')
 
 
 # --- SVG ----------------------------------------------------------------------
 
 def check_svg_source(relpath, text):
+    neutral = _decode_references(text, neutral=True)
     text = _decode_references(text)
-    problems = []
-    for pattern, what in SVG_FORBIDDEN:
-        problems.extend((m.start(), u'{0} is not allowed'.format(what))
-                        for m in pattern.finditer(text))
-    return _text_findings(relpath, text, problems, 'svg')
+    problems = (_matches(neutral, SVG_TAG_RULES, _line_numbers(neutral)) +
+                _matches(text, SVG_VALUE_RULES, _line_numbers(text)))
+    return _text_findings(relpath, problems, 'svg')
 
 
 # --- Python -------------------------------------------------------------------
@@ -487,8 +518,7 @@ def _literal_hits(literals, config):
         if BASE64_RUN.search(text) or HEX_RUN.search(text):
             hits.append((line, 'encoded-string', u'string literal looks like encoded data'))
         if 'xmlns' in text.lower():
-            problems = _xaml_problems(_decode_references(text), config)
-            hits.extend((line, 'xaml', message) for _, message in problems)
+            hits.extend((line, 'xaml', message) for _, message in _xaml_problems(text, config))
     return hits
 
 
