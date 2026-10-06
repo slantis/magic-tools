@@ -147,7 +147,7 @@ XAML_VALUE_RULES = (
     (re.compile(r'(?:\\\\|\\/|/\\)[^\\/\s"\'<>]+[\\/]'), 'UNC path'),
 )
 XAML_CLR_ASSEMBLY = re.compile(
-    r'clr-namespace:[^;"\'<>\s:]*\s*;\s*assembly\s*=\s*([^"\'\s;,<>]*)', re.I)
+    r'clr-namespace:[^;"\'<>:]*;\s*assembly\s*=\s*([^"\'\s;,<>]*)', re.I)
 XAML_CLR_NAMESPACE = re.compile(r'clr-namespace:\s*([\w.]*)', re.I)
 # Namespaces whose types run processes, load code, reach the network, the file
 # system or the registry: not reachable from XAML, whatever the assembly.

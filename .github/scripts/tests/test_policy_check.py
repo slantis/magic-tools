@@ -283,6 +283,9 @@ class XamlRules(unittest.TestCase):
     def test_foreign_assembly(self):
         self.assertIn('xaml', rules(self.check(
             '<Grid xmlns:e="clr-namespace:Evil;assembly=Evil"/>')))
+        for ns in ['clr-namespace: E', 'clr-namespace:E F', 'clr-namespace:&#32;E']:
+            body = '<Grid xmlns:e="{0};assembly=Evil"/>'.format(ns)
+            self.assertIn('xaml', rules(self.check(body)), body)
 
     def test_allowed_assembly(self):
         self.assertEqual(self.check(
