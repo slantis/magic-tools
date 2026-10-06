@@ -1,0 +1,8 @@
+# Every change needs an approving review from a code owner.
+*              @ivansilveira5 @JoaquinMusetti
+
+# Repository checks, release and settings: changes here change what the
+# checks accept, so they are listed on their own.
+/.github/      @ivansilveira5 @JoaquinMusetti
+/lib/          @ivansilveira5 @JoaquinMusetti
+/startup.py    @ivansilveira5 @JoaquinMusetti

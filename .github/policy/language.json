@@ -1,0 +1,28 @@
+{
+  "scan_exts": [".py", ".xaml", ".yaml", ".json", ".md"],
+  "stopwords": [
+    "que", "los", "las", "del", "para", "por", "con", "una", "unos", "unas", "esto",
+    "esta", "este", "estos", "estas", "eso", "esa", "ese", "pero", "como", "cuando",
+    "donde", "sobre", "entre", "hasta", "desde", "hay", "muy", "todo", "todos", "toda",
+    "cada", "otro", "otra", "sea", "ser", "fue", "tiene", "tienen", "hace", "hacer",
+    "puede", "pueden", "les", "el", "la", "en", "es", "mas", "bien", "aca", "aqui", "asi",
+    "antes", "vez", "mismo", "misma", "igual", "vista", "vistas", "plano", "planos",
+    "hoja", "hojas", "filtro", "filtros", "familia", "familias", "boton", "ventana",
+    "usuario", "archivo", "carpeta", "se"
+  ],
+  "strong": [
+    "tambien", "porque", "despues", "ademas", "segun", "todavia", "mientras", "entonces",
+    "nosotros", "ustedes", "hacemos", "tenemos", "queremos", "ahora", "nunca", "siempre",
+    "bajo", "dejar", "sacar", "anda", "rompe"
+  ],
+  "name_hashes": [
+    "5065fb9ca95ac79ffc4cfc8b30e99c975bccea5d0e245ddec9b3eefdf86087ac",
+    "664f7102d6997662f291c99d787a7d1af9b70af70326fa70f5f69805c2fbf246",
+    "f693662ed34bace51da31333e5cb522a9ab0619836c2d356256a6afa5282a54e",
+    "7781b95c6eb67a47ffe5827bcb37cf99f718dd4ca31b876fee1c4394751f5882",
+    "7cadab457ad8d811f134612436daaa5e5914b20dc2502865f714035b0f267680",
+    "7f3806e77be78814aa3da52f05dd518b0d236c919504fee6c9f5b839f52cbffc",
+    "cd0b9452fc376fc4c35a60087b366f70d883fc901524daf1f122fbd319384f6a"
+  ],
+  "allow": []
+}
