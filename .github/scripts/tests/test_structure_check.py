@@ -86,7 +86,7 @@ class Structure(unittest.TestCase):
             self.write(rel + '/' + icon, 'x')
 
     def groups(self, data):
-        self.write('lib/groups.json', json.dumps(data))
+        self.write('lib/groups.json', u'' + json.dumps(data))
 
     def check(self):
         return sc.check_structure(self.root, CONFIG)
@@ -165,7 +165,7 @@ class Structure(unittest.TestCase):
     def test_main_exit_codes(self):
         cfg = os.path.join(self.root, 'lib', 'policy.json')
         with io.open(cfg, 'w', encoding='utf-8') as fh:
-            fh.write(json.dumps({'structure': CONFIG}, ensure_ascii=False))
+            fh.write(u'' + json.dumps({'structure': CONFIG}, ensure_ascii=False))
         self.assertEqual(self.run_main(['--root', self.root, '--config', cfg]), 0)
         self.remove(TAB + '/Favorites.panel/Rename.pushbutton/icon.png')
         self.assertEqual(self.run_main(['--root', self.root, '--config', cfg]), 1)

@@ -160,7 +160,7 @@ class Language(unittest.TestCase):
         self.addCleanup(shutil.rmtree, cfg_dir)
         cfg = os.path.join(cfg_dir, 'language.json')
         with io.open(cfg, 'w', encoding='utf-8') as fh:
-            fh.write(json.dumps(CONFIG))
+            fh.write(u'' + json.dumps(CONFIG))
         self.write('lib/a.py', '# fine\n')
         self.assertEqual(self.run_main(['--root', self.root, '--config', cfg])[0], 0)
         self.write('lib/a.py', '# esto es para que\n')
@@ -316,7 +316,7 @@ class Language(unittest.TestCase):
         self.addCleanup(shutil.rmtree, cfg_dir)
         cfg = os.path.join(cfg_dir, 'language.json')
         with io.open(cfg, 'w', encoding='utf-8') as fh:
-            fh.write(json.dumps(dict(CONFIG, allow=[{'path': 'lib/a.py', 'text': ''}])))
+            fh.write(u'' + json.dumps(dict(CONFIG, allow=[{'path': 'lib/a.py', 'text': ''}])))
         code, out = self.run_main(['--root', self.root, '--config', cfg])
         self.assertEqual(code, 2)
         self.assertIn('allow', out)
