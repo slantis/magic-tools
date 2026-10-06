@@ -1,0 +1,18 @@
+# Every tool here starts hidden; lib/favbar.py shows the ones you starred.
+# The '--- Group' lines are the seams between groups (lib/favbar.seams).
+layout:
+  - Rename Families
+  - "--- Analysis"
+  - Inspect Model Overrides
+  - Inspect View Overrides
+  - Inspect Element Graphics
+  - "--- Annotate"
+  - Cloud Manager
+  - "--- Navigation"
+  - Find Room
+  - "--- Sheets"
+  - Print Set Manager
+  - "--- Views, Templates & Filters"
+  - View Template Manager
+  - Goodbye Filter
+  - Create Type Filter

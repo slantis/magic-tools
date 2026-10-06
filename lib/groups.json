@@ -1,0 +1,42 @@
+[
+ {
+  "group": "Actions",
+  "tools": [
+   "Rename Families"
+  ]
+ },
+ {
+  "group": "Analysis",
+  "tools": [
+   "Inspect Model Overrides",
+   "Inspect View Overrides",
+   "Inspect Element Graphics"
+  ]
+ },
+ {
+  "group": "Annotate",
+  "tools": [
+   "Cloud Manager"
+  ]
+ },
+ {
+  "group": "Navigation",
+  "tools": [
+   "Find Room"
+  ]
+ },
+ {
+  "group": "Sheets",
+  "tools": [
+   "Print Set Manager"
+  ]
+ },
+ {
+  "group": "Views, Templates & Filters",
+  "tools": [
+   "View Template Manager",
+   "Goodbye Filter",
+   "Create Type Filter"
+  ]
+ }
+]

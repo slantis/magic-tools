@@ -24,5 +24,15 @@
     "7f3806e77be78814aa3da52f05dd518b0d236c919504fee6c9f5b839f52cbffc",
     "cd0b9452fc376fc4c35a60087b366f70d883fc901524daf1f122fbd319384f6a"
   ],
-  "allow": []
+  "allow": [
+    {"path": "Magic-tools.tab/Favorites.panel/Cloud Manager.pushbutton/script.py",
+     "text": "(\"yes\", \"true\", \"1\", \"si\""},
+    {"path": "lib/toolinfo.py", "text": "salem", "rules": ["name"]},
+    {"path": "lib/toolinfo.py", "text": "SALEM_DIR", "rules": ["name"]},
+    {"path": "lib/toolwindow.py", "text": "salem", "rules": ["name"]},
+    {"path": "lib/toolwindow.py", "text": "SALEM_DIR", "rules": ["name"]},
+    {"path": "lib/toolpane.py", "text": "SALEM_PYREVIT", "rules": ["name"]},
+    {"path": "lib/toolpane.py", "text": "Salem's", "rules": ["name"]},
+    {"path": "lib/toolpane.py", "text": "\"salem-", "rules": ["name"]}
+  ]
 }

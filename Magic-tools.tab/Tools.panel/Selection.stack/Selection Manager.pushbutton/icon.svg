@@ -1,0 +1,13 @@
+<svg viewBox="0 0 96 96" xmlns="http://www.w3.org/2000/svg">
+  <rect x="14" y="18" width="56" height="60" rx="4" fill="none" stroke="#A6A199" stroke-width="5"/>
+  <rect x="22" y="28" width="11" height="11" rx="2" fill="#E8833C"/>
+  <path d="M24.5 33.5 L27.5 36.5 L31 31" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="40" y1="33.5" x2="62" y2="33.5" stroke="#A6A199" stroke-width="3.5" stroke-linecap="round"/>
+  <rect x="22" y="45" width="11" height="11" rx="2" fill="none" stroke="#A6A199" stroke-width="2.5"/>
+  <line x1="40" y1="50.5" x2="62" y2="50.5" stroke="#A6A199" stroke-width="3.5" stroke-linecap="round"/>
+  <rect x="22" y="62" width="11" height="11" rx="2" fill="#E8833C"/>
+  <path d="M24.5 67.5 L27.5 70.5 L31 65" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="40" y1="67.5" x2="62" y2="67.5" stroke="#A6A199" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M60 52 L60 82 L67.5 74.5 L74 86.5 L80 83.5 L73.5 71.5 L83 71.5 Z" fill="#fff" stroke="#202022" stroke-width="4.5" stroke-linejoin="round"/>
+<path d="M85 9 Q85 16 92 16 Q85 16 85 23 Q85 16 78 16 Q85 16 85 9 Z" fill="#E8833C"/>
+</svg>
