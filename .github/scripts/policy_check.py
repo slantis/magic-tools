@@ -21,8 +21,10 @@ Runs on Python 2.7 (CI) and Python 3.
 # - getattr() with a name that is not a string literal (getattr(os, name));
 # - a payload split into literals shorter than the encoded-string threshold
 #   and joined at run time ('QUJD...' + 'QUJD...');
-# - calls made through a variable, such as a System.Diagnostics.Process
-#   created as an instance and started through it (p = Process(); p.Start()).
+# - a type looked up by name in one statement and instantiated in another
+#   (t = Type.GetType('System.Diagnostics.Process'); Activator.CreateInstance(t));
+# - existing processes reached through a variable (p = Process.GetProcessById(n);
+#   p.Kill()).
 from __future__ import print_function
 
 import argparse
@@ -31,11 +33,14 @@ import json
 import os
 import re
 import struct
+import subprocess
 import sys
 import warnings
 import zlib
 
 from ci_common import Finding, file_digest, format_finding, list_files, load_json
+# Private, but it is the test list_files itself uses to decide what to list.
+from ci_common import _in_git_work_tree
 
 try:
     import yaml
@@ -75,6 +80,7 @@ STAR_IMPORT_ALLOWED = (['Autodesk', 'Revit', 'DB'], ['Autodesk', 'Revit', 'UI'])
 
 OS_PROCESS_MEMBERS = re.compile(r'(?:system|popen\w*|exec\w*|spawn\w*|startfile|fork\w*|kill)$')
 PROCESS_START = re.compile(r'Start$')
+ACTIVATOR_CREATE = re.compile(r'CreateInstance$')
 NATIVE_MEMBERS = (
     ('Assembly', re.compile(r'(?:Load\w*|UnsafeLoadFrom)$')),
     ('clr', re.compile(r'(?:AddReferenceToFile\w*|AddReferenceByName|AddReferenceByPartialName'
@@ -240,17 +246,35 @@ else:
         return node.s if isinstance(node, _STRING_NODES) else None
 
 
+def _string_text(node):
+    """A string literal's text, bytes read as Latin-1; None for anything else."""
+    value = _string_value(node)
+    if isinstance(value, bytes):
+        value = value.decode('latin-1')
+    return value
+
+
+def _dotted(parts):
+    return u'.'.join(part or u'(...)' for part in parts)
+
+
 def _getattr_literal(node):
     """(object, name) for getattr(object, 'name'[, default]); None otherwise."""
     if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
             and node.func.id == 'getattr' and len(node.args) in (2, 3)):
         return None
-    name = _string_value(node.args[1])
-    if name is None:
-        return None
-    if isinstance(name, bytes):
-        name = name.decode('latin-1')
-    return node.args[0], name
+    name = _string_text(node.args[1])
+    return None if name is None else (node.args[0], name)
+
+
+def _names_a_process_type(call):
+    """True when a string literal among the call's arguments names a Process type."""
+    for arg in _call_arguments(call):
+        for node in ast.walk(arg):
+            text = _string_text(node)
+            if text is not None and 'process' in text.lower():
+                return True
+    return False
 
 
 def _star_import_allowed(node):
@@ -284,7 +308,7 @@ class _PythonScanner(ast.NodeVisitor):
 
     def _check(self, node, parts, imported):
         verb = u'imports' if imported else u'uses'
-        name = u'.'.join(part or u'(...)' for part in parts)
+        name = _dotted(parts)
         for rule, matches in NAME_RULES:
             if matches(parts, imported):
                 self._hit(node, rule, u'{0} {1}'.format(verb, name))
@@ -344,18 +368,22 @@ class _PythonScanner(ast.NodeVisitor):
     def visit_Call(self, node):
         if _getattr_literal(node) is not None:
             return self._visit_chain(node)
-        if isinstance(node.func, (ast.Name, ast.Attribute)):
-            parts, _ = self._chain(node.func)
-            if parts[0]:
-                self._check_call(node, '.'.join(parts))
+        if isinstance(node.func, (ast.Name, ast.Attribute)) or _getattr_literal(node.func):
+            self._check_call(node, self._chain(node.func)[0])
         self.generic_visit(node)
 
     def visit_Exec(self, node):  # the Python 2 exec statement
         self._hit(node, 'dynamic-code', u'exec statement')
         self.generic_visit(node)
 
-    def _check_call(self, node, name):
-        if name in DYNAMIC_CALLS:
+    def _check_call(self, node, parts):
+        name = _dotted(parts)  # '(...).x' when the chain does not start at a name
+        if parts[-1] == 'Process':
+            # The constructor; Process.GetCurrentProcess() ends in another name.
+            self._hit(node, 'process', u'constructs {0}'.format(name))
+        elif _member_of(parts, 'Activator', ACTIVATOR_CREATE) and _names_a_process_type(node):
+            self._hit(node, 'process', u'creates a Process through {0}'.format(name))
+        elif name in DYNAMIC_CALLS:
             self._hit(node, 'dynamic-code', u'calls {0}()'.format(name))
         elif name == 'clr.AddReference':
             for arg in _call_arguments(node):
@@ -380,11 +408,9 @@ def _literals(tree):
     """(line, text) for every string literal; bytes are read as Latin-1."""
     found = []
     for node in ast.walk(tree):
-        value = _string_value(node)
-        if value is not None:
-            if isinstance(value, bytes):
-                value = value.decode('latin-1')
-            found.append((getattr(node, 'lineno', 0), value))
+        text = _string_text(node)
+        if text is not None:
+            found.append((getattr(node, 'lineno', 0), text))
     return found
 
 
@@ -537,8 +563,21 @@ def _check_extension_text(relpath, text, config):
     return []
 
 
-def _check_file(root, relpath, config):
+def _index_symlinks(root):
+    """Paths the git index records as symlinks (mode 120000). A checkout
+    without symlink support writes them as plain files, and list_files skips
+    a link to a folder or to nothing, so os.path.islink alone misses them."""
+    if not _in_git_work_tree(root):
+        return set()
+    out = subprocess.check_output(['git', '-C', root, 'ls-files', '-s', '-z'])
+    return set(entry.split(u'\t', 1)[1] for entry in out.decode('utf-8').split(u'\0')
+               if entry.startswith(u'120000 '))
+
+
+def _check_file(root, relpath, config, symlinks):
     path = os.path.join(root, *relpath.split('/'))
+    if relpath in symlinks or os.path.islink(path):
+        return [Finding(relpath, 0, 'file-type', u'symlinks are not allowed')]
     tooling = _is_tooling(relpath, config)
     if not _allowed_type(relpath, tooling):
         where = u'.github/' if tooling else u'the extension'
@@ -549,9 +588,10 @@ def _check_file(root, relpath, config):
 
 
 def check_repo(root, config):
+    symlinks = _index_symlinks(root)
     findings = []
-    for relpath in list_files(root):
-        findings.extend(_check_file(root, relpath, config))
+    for relpath in sorted(set(list_files(root)) | symlinks):
+        findings.extend(_check_file(root, relpath, config, symlinks))
     return findings
 
 

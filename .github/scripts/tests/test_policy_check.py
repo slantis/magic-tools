@@ -5,7 +5,9 @@ import hashlib
 import io
 import os
 import shutil
+import stat
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -208,6 +210,23 @@ class PythonRules(unittest.TestCase):
                "g = getattr(os, 'path', None)\n")
         self.assertEqual(self.check(src), [])
 
+    def test_process_construction(self):
+        for src in ["from System.Diagnostics import Process\np = Process()",
+                    "import System\np = System.Diagnostics.Process()",
+                    "from System import Diagnostics\np = Diagnostics.Process()",
+                    "from System import Activator, Type\n"
+                    "p = Activator.CreateInstance(Type.GetType('System.Diagnostics.Process'))",
+                    "import System\n"
+                    "p = System.Activator.CreateInstance('System', 'System.Diagnostics.Process')"]:
+            found = self.check(src + "\n")
+            self.assertIn(2, [f.line for f in found if f.rule == 'process'], src)
+
+    def test_getting_the_current_process_is_not_a_construction(self):
+        src = ("from System.Diagnostics import Process\nh = Process.GetCurrentProcess().Id\n"
+               "from System import Activator, Type\n"
+               "s = Activator.CreateInstance(Type.GetType('System.Text.StringBuilder'))\n")
+        self.assertEqual(self.check(src), [])
+
     def test_docstring_naming_xamlreader_is_allowed(self):
         # slantisui's styles_xaml() documents its use with XamlReader and xmlns.
         src = ('def styles():\n'
@@ -357,6 +376,42 @@ class RepoRules(unittest.TestCase):
         self.assertEqual(pc.main(['--root', self.root, '--config', cfg]), 0)
         self.write('lib/b.py', 'import socket\n')
         self.assertEqual(pc.main(['--root', self.root, '--config', cfg]), 1)
+
+    def test_symlink_on_disk(self):
+        self.write('lib/a.py', 'import os\n')
+        try:
+            os.symlink('a.py', os.path.join(self.root, 'lib', 'b.py'))
+        except (AttributeError, NotImplementedError, OSError):
+            self.skipTest('symlinks cannot be created here')
+        self.assertEqual([(f.path, f.rule, f.message) for f in self.check()],
+                         [('lib/b.py', 'file-type', 'symlinks are not allowed')])
+
+
+def _force_remove(func, path, _exc_info):
+    # git marks its object files read-only, which Windows refuses to delete.
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
+class GitSymlinks(unittest.TestCase):
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.root, onerror=_force_remove)
+
+    def test_symlink_recorded_in_the_git_index(self):
+        # A Windows checkout without symlink support writes it as a plain file.
+        with open(os.path.join(self.root, 'a.py'), 'wb') as fh:
+            fh.write(b'import os\n')
+        subprocess.check_call(['git', 'init', '-q', self.root])
+        git = ['git', '-C', self.root, '-c', 'core.autocrlf=false']
+        blob = subprocess.check_output(git + ['hash-object', '-w', 'a.py']).decode('ascii').strip()
+        subprocess.check_call(git + ['update-index', '--add', '--cacheinfo',
+                                     '120000,{0},lib/link.py'.format(blob)])
+        self.assertEqual([(f.path, f.rule) for f in pc.check_repo(self.root, CONFIG)],
+                         [('lib/link.py', 'file-type')])
 
 
 if __name__ == '__main__':
