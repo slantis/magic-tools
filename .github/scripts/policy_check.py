@@ -57,7 +57,7 @@ DEFAULT_CONFIG = os.path.join(
 
 EXTENSION_SUFFIXES = ('.py', '.xaml', '.yaml', '.json', '.png', '.svg', '.ttf', '.md', '.txt')
 EXTENSION_NAMES = ('LICENSE', 'LICENSE-CONTENT', '.gitattributes', '.gitignore')
-TOOLING_SUFFIXES = ('.yml', '.yaml', '.py', '.md', '.json', '.txt')
+TOOLING_SUFFIXES = ('.yml', '.yaml', '.py', '.md', '.json', '.txt', '.toml')
 TOOLING_NAMES = ('CODEOWNERS',)
 
 TEXT_SNIFF_BYTES = 8192
@@ -522,9 +522,18 @@ def _literal_hits(literals, config):
     return hits
 
 
-def _telemetry_url_hits(literals, url):
-    return [(line, 'network', u'URL other than the telemetry endpoint')
-            for line, text in literals if HTTP_URL.search(text) and text.strip() != url]
+def _telemetry_urls(telemetry):
+    """The endpoints the telemetry module may name: "urls", a list, and the
+    older single "url"; null or missing means none."""
+    urls = list(telemetry.get('urls') or [])
+    if telemetry.get('url'):
+        urls.append(telemetry['url'])
+    return urls
+
+
+def _telemetry_url_hits(literals, urls):
+    return [(line, 'network', u'URL other than the telemetry endpoints')
+            for line, text in literals if HTTP_URL.search(text) and text.strip() not in urls]
 
 
 def check_python_source(relpath, source, config):
@@ -538,9 +547,9 @@ def check_python_source(relpath, source, config):
     literals = _literals(tree)
     hits = scanner.hits + _literal_hits(literals, config)
     telemetry = config['telemetry']
-    if telemetry['module'] == relpath:
+    if telemetry.get('module') == relpath:
         hits = [hit for hit in hits if hit[1] != 'network']
-        hits.extend(_telemetry_url_hits(literals, telemetry['url']))
+        hits.extend(_telemetry_url_hits(literals, _telemetry_urls(telemetry)))
     return _hit_findings(relpath, hits)
 
 

@@ -4,7 +4,7 @@
     "RevitAPI", "RevitAPIUI", "AdWindows",
     "PresentationFramework", "PresentationCore", "WindowsBase", "System.Xaml",
     "System", "System.Core", "System.Drawing", "System.Windows.Forms",
-    "System.Private.Uri", "mscorlib"
+    "System.Private.Uri", "System.Net.Requests", "mscorlib"
   ],
   "font_hashes": {
     "lib/slantisui/fonts/DMSans-Bold.ttf": "3764a2ce62fa95596c3315c1a0ca379e7cf827ed397c97fc036925b9b20b74dc",
@@ -12,14 +12,20 @@
     "lib/slantisui/fonts/DMSans-Regular.ttf": "20ccb90498d8ca511bb0be31a74eccd5f29fbe1161852ef72781b703929e98ec"
   },
   "png_max_bytes": 65536,
-  "telemetry": {"module": null, "url": null},
+  "telemetry": {
+    "module": "lib/telemetry.py",
+    "urls": [
+      "https://n8n.srv1888016.hstgr.cloud/webhook/magic-tools-open-source-installation-840d98d2115c62dc5087",
+      "https://n8n.srv1888016.hstgr.cloud/webhook/magic-tools-open-source-activity-log-68we741w8e1f76w8ef4"
+    ]
+  },
   "structure": {
     "pool_panel": "Favorites.panel",
     "groups": "lib/groups.json",
     "icons": ["icon.png", "icon.dark.png", "icon.svg", "icon.dark.svg"],
     "root_entries": [
       ".github", "lib", "README.md", "CHANGELOG.md", "LICENSE", "LICENSE-CONTENT",
-      "extension.json", "startup.py", ".gitattributes", ".gitignore"
+      "extension.json", "startup.py", "TELEMETRY.md", ".gitattributes", ".gitignore"
     ],
     "bundle_types": [".tab", ".panel", ".stack", ".pulldown", ".splitbutton", ".pushbutton"],
     "bundle_keys": ["layout", "title", "tooltip", "author"]

@@ -1,0 +1,17 @@
+# gitleaks configuration of the secrets job (.github/workflows/checks.yml),
+# mounted with --config. Every default rule stays on; this file only adds one
+# allowlist entry.
+#
+# The token below authenticates the opt-in usage data client in
+# lib/telemetry.py. It ships in the open source code on purpose, so it is
+# public and protects nothing (see TELEMETRY.md). When it is rotated, replace
+# it here in the same pull request as in lib/telemetry.py.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Public token of the usage data client (lib/telemetry.py)"
+regexes = [
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiJtYWdpYy10b29scy1vcGVuLXNvdXJjZSIsImlhdCI6MTc5MTMxMTcxM30\.51thxorsiPW0aE9qQVJ9DdJ46RW5Nlr1CUtSHvH-pQs''',
+]
