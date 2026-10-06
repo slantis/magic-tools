@@ -314,6 +314,39 @@ class XamlRules(unittest.TestCase):
         self.assertEqual(self.check('<Image Source="pack://application:,,,/a.png"/>'
                                     '<TextBlock Text="Pick a file: any"/>'), [])
 
+    def test_xaml_2009_factory_calls(self):
+        for body in ['<s:Object x:FactoryMethod="s:Process.Start"/>',
+                     '<s:Object X:factorymethod="Start"/>',
+                     '<s:Object><x:Arguments><x:String>calc</x:String></x:Arguments></s:Object>',
+                     '<s:Object y:Arguments="calc"/>']:
+            self.assertIn('xaml', rules(self.check(body)), body)
+
+    def test_risky_clr_namespaces_whatever_the_assembly(self):
+        for ns in ['System.Diagnostics', 'System.Reflection.Emit', 'System.Net', 'System.IO',
+                   'System.Runtime.InteropServices', 'Microsoft.Win32']:
+            for decl in ['clr-namespace:{0};assembly=mscorlib', 'clr-namespace:{0}']:
+                body = '<Grid xmlns:s="{0}"/>'.format(decl.format(ns))
+                self.assertIn('xaml', rules(self.check(body)), body)
+        self.assertEqual(self.check(
+            '<Grid xmlns:c="clr-namespace:System.Windows.Controls;assembly=PresentationFramework"/>'),
+            [])
+
+    def test_xamlreader_after_a_gt_inside_a_quoted_value(self):
+        for body in ['<Grid Tag="a>b" Name="{x:Type m:XamlReader}"/>',
+                     '<Grid Tag=\'a&gt;b\' Name="{x:Type m:XamlReader}"/>']:
+            self.assertIn('xaml', rules(self.check(body)), body)
+
+    def test_dtd(self):
+        found = pc.check_xaml_source(
+            'lib/a.xaml', '<!DOCTYPE Window [<!ENTITY x "y">]>' + self.HEAD + '</Window>', CONFIG)
+        self.assertEqual(sorted(f.message for f in found),
+                         ['<!DOCTYPE is not allowed', '<!ENTITY is not allowed'])
+
+    def test_protocol_relative_values(self):
+        for body in ['<Image Source="//evil.example/a.png"/>',
+                     '<Image Source=\'//host/share/a.png\'/>']:
+            self.assertIn('xaml', rules(self.check(body)), body)
+
     def test_xamlreader_in_markup(self):
         self.assertIn('xaml', rules(self.check('<Grid Tag="{x:Type m:XamlReader}"/>')))
 
@@ -345,6 +378,10 @@ class SvgRules(unittest.TestCase):
                      '<use href="&#x68;ttps://evil.example/a.svg#x"/>',
                      '<use xlink:href="h\nttp://evil.example/a.svg#x"/>',
                      '<image href="&#100;ata:image/png;base64,AAAA"/>']:
+            self.assertIn('svg', rules(self.check(body)), body)
+
+    def test_prefixed_script_element(self):
+        for body in ['<svg:script>alert(1)</svg:script>', '<x:SCRIPT>alert(1)</x:SCRIPT>']:
             self.assertIn('svg', rules(self.check(body)), body)
 
     def test_entity(self):

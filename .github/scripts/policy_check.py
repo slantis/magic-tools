@@ -24,7 +24,9 @@ Runs on Python 2.7 (CI) and Python 3.
 # - a type looked up by name in one statement and instantiated in another
 #   (t = Type.GetType('System.Diagnostics.Process'); Activator.CreateInstance(t));
 # - existing processes reached through a variable (p = Process.GetProcessById(n);
-#   p.Kill()).
+#   p.Kill());
+# - XAML split across several Python string literals and joined at run time:
+#   only a literal that holds xmlns is read as XAML.
 from __future__ import print_function
 
 import argparse
@@ -114,13 +116,27 @@ XAML_FORBIDDEN = (
     (re.compile(r'ObjectDataProvider', re.I), 'ObjectDataProvider'),
     # x:Code, under whatever prefix the XAML namespace is bound to.
     (re.compile(r'<\s*[\w.-]+:Code\b', re.I), 'x:Code'),
+    # XAML 2009 factory calls, which XamlReader honours: they can call any static
+    # method, such as Process.Start, of a type from an allowed assembly.
+    (re.compile(r'[\w.-]+:FactoryMethod\b', re.I), 'x:FactoryMethod'),
+    (re.compile(r'[\w.-]+:Arguments\b', re.I), 'x:Arguments'),
     # XamlReader inside a tag (such as {x:Type m:XamlReader}); prose that names
     # it, in a comment or in a Python docstring next to xmlns, is not markup.
-    (re.compile(r'<(?!!)[^<>]*XamlReader', re.I), 'XamlReader'),
+    # Quoted values are skipped whole, so a '>' inside one does not end the tag.
+    (re.compile(r'<(?!!)(?:[^<>"\']|"[^"]*"|\'[^\']*\')*(?:"[^"]*|\'[^\']*)?XamlReader',
+                re.I), 'XamlReader'),
+    (re.compile(r'<!DOCTYPE', re.I), '<!DOCTYPE'),
+    (re.compile(r'<!ENTITY', re.I), '<!ENTITY'),
     (re.compile(r'\\\\[^\\/\s"\'<>]+[\\/]'), 'UNC path'),
+    (re.compile(r'=\s*["\']\s*' + _scheme('//')), 'protocol-relative or UNC path'),
 )
 XAML_CLR_ASSEMBLY = re.compile(
     r'clr-namespace:[^;"\'<>]*;\s*assembly\s*=\s*([^"\'\s;,<>]*)', re.I)
+XAML_CLR_NAMESPACE = re.compile(r'clr-namespace:\s*([\w.]*)', re.I)
+# Namespaces whose types run processes, load code, reach the network, the file
+# system or the registry: not reachable from XAML, whatever the assembly.
+XAML_RISKY_NAMESPACES = ('System.Diagnostics', 'System.Reflection', 'System.Net', 'System.IO',
+                         'System.Runtime.InteropServices', 'Microsoft.Win32')
 # Any URL, pack://siteoforigin (files next to the host program) and file: in
 # any form; "file:" needs something after it, so "Pick a file: x" is text.
 XAML_URI = re.compile(r'\b(?:(?:{0})[^\s"\'<>]*|{1}[^\s"\'<>]+)'.format(
@@ -130,7 +146,7 @@ XAML_NAMESPACE_PREFIX = 'http://schemas.microsoft.com/'
 XAML_NAMESPACES = ('http://schemas.openxmlformats.org/markup-compatibility/2006',)
 
 SVG_FORBIDDEN = (
-    (re.compile(r'<script', re.I), '<script> element'),
+    (re.compile(r'<(?:[\w.-]+:)?script', re.I), '<script> element'),
     (re.compile(r'<foreignObject', re.I), '<foreignObject> element'),
     (re.compile(r'<!ENTITY', re.I), 'entity declaration'),
     (re.compile(r'\bon\w+\s*=', re.I), 'event handler attribute'),
@@ -192,6 +208,12 @@ def _allowed_xaml_uri(uri):
     return uri.startswith(XAML_NAMESPACE_PREFIX) or uri in XAML_NAMESPACES
 
 
+def _risky_clr_namespace(namespace):
+    namespace = namespace.lower()
+    return any(namespace == risky.lower() or namespace.startswith(risky.lower() + '.')
+               for risky in XAML_RISKY_NAMESPACES)
+
+
 def _xaml_problems(text, config):
     """(offset, message) problems in text whose references are already decoded."""
     allowed = set(name.lower() for name in config['assemblies'])
@@ -203,6 +225,9 @@ def _xaml_problems(text, config):
         if m.group(1).lower() not in allowed:
             problems.append((m.start(), u'clr-namespace from assembly "{0}", which is not in '
                                         u'the policy'.format(m.group(1))))
+    for m in XAML_CLR_NAMESPACE.finditer(text):
+        if _risky_clr_namespace(m.group(1)):
+            problems.append((m.start(), u'clr-namespace {0} is not allowed'.format(m.group(1))))
     for m in XAML_URI.finditer(text):
         uri = SCHEME_NOISE.sub(u'', m.group(0))
         if not _allowed_xaml_uri(uri):
