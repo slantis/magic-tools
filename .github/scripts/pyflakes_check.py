@@ -8,9 +8,10 @@ declared with PYFLAKES_BUILTINS, a comma separated list of names.
 
 Only messages that mean the script will fail when it runs fail the check:
 undefined names, a name used before it is assigned, misplaced return, yield,
-break or continue, duplicate arguments, and syntax errors. Everything else
-(unused imports and variables, redefinitions...) is printed as a warning and
-does not change the exit code.
+break or continue, duplicate arguments, and syntax errors (including those
+that only the compiler finds, so this fails on the same files as compileall).
+Everything else (unused imports and variables, redefinitions...) is printed
+as a warning and does not change the exit code.
 
 Python files under .github/ are tooling, not part of the extension, and are
 skipped. Runs on Python 2.7 (inside the CI container, where pyflakes 2.4.0
@@ -48,6 +49,14 @@ def _custom_builtins():
     return [name.strip() for name in names.split(',') if name.strip()]
 
 
+def _native(path):
+    # Python 2 compile() and ast.parse() want a byte-string file name and raise
+    # UnicodeEncodeError on a non-ASCII unicode one. Python 3 takes text.
+    if str is bytes and not isinstance(path, bytes):
+        return path.encode(sys.getfilesystemencoding() or 'utf-8')
+    return path
+
+
 def _finding(path, line, rule, message):
     return ci_common.format_finding(
         ci_common.Finding(_text(path), line, rule, _text(message)))
@@ -59,12 +68,19 @@ def check_paths(paths):
     errors = []
     warnings = []
     for path in paths:
-        with open(path, 'rb') as fh:
+        native = _native(path)
+        with open(native, 'rb') as fh:
             # Bytes, not text: Python 2 refuses a unicode string that has an
             # encoding declaration, and bytes keep the declaration working.
             source = fh.read()
         try:
-            tree = ast.parse(source, path)
+            tree = ast.parse(source, native)
+            # ast.parse stops before the compiler's own checks (on Python 2, a
+            # "return x" inside a generator; on Python 3, a nonlocal at module
+            # level). compileall runs the compiler, so this does too, and both
+            # jobs fail on the same files. dont_inherit keeps this script's
+            # __future__ flags out of the checked code.
+            compile(source, native, 'exec', 0, True)
         except SyntaxError as exc:
             errors.append(_finding(path, exc.lineno, 'SyntaxError', exc.msg))
             continue
@@ -72,7 +88,7 @@ def check_paths(paths):
             errors.append(_finding(path, 0, 'Unparsable', str(exc)))
             continue
         # No file_tokens: that only turns "# type:" comments into checked code.
-        messages = checker.Checker(tree, filename=path, builtins=builtins).messages
+        messages = checker.Checker(tree, filename=native, builtins=builtins).messages
         for message in sorted(messages, key=lambda m: m.lineno):
             rule = type(message).__name__
             finding = _finding(path, message.lineno, rule,

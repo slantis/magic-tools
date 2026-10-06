@@ -15,7 +15,11 @@ name: Checks
 #
 # Python runs in the python:2.7 image, the same grammar as the IronPython 2.7
 # that pyRevit uses. Third-party code is pinned: actions by commit SHA, images
-# by digest, pip packages by version and hash (.github/requirements-ci.txt).
+# by digest, pip packages by version and hash (.github/requirements-ci.txt),
+# and pip installs wheels only, so no setup.py of a package runs.
+#
+# The work tree is mounted read-only (secrets mounts only .git), except in
+# compile, where compileall writes .pyc files next to the sources.
 
 on:
   pull_request:
@@ -27,8 +31,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A new push to a pull request replaces the checks still running for it. A
+  # push to main gets a group of its own, so its checks are never cancelled
+  # (GitHub also cancels a *pending* run of a shared group).
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   PY27_IMAGE: python:2.7@sha256:cfa62318c459b1fde9e0841c619906d15ada5910d625176e24bf692cf8a2601d
@@ -46,12 +53,17 @@ jobs:
         with:
           persist-credentials: false
 
+      # This mount is read-write because compileall writes .pyc files. -f
+      # compiles every file even if a .pyc that a pull request committed
+      # claims to be up to date.
       - name: Compile and run pyflakes on Python 2.7
         run: |
-          docker run --rm -v "$PWD:/src" -w /src -e PYFLAKES_BUILTINS "$PY27_IMAGE" \
+          docker run --rm -v "$PWD:/src" -w /src -e PYFLAKES_BUILTINS \
+            -e PYTHONDONTWRITEBYTECODE=1 "$PY27_IMAGE" \
             bash -euo pipefail -c '
-              pip install -q --require-hashes -r .github/requirements-ci.txt
-              python -m compileall -q -x "(^|/)\.github/" .
+              pip install -q --require-hashes --only-binary=:all: -r .github/requirements-ci.txt
+              git config --global --add safe.directory /src
+              python -m compileall -q -f -x "(^|/)\.github/" .
               python .github/scripts/pyflakes_check.py --root .
             '
 
@@ -65,9 +77,10 @@ jobs:
 
       - name: Unit tests of the checks, then the policy check
         run: |
-          docker run --rm -v "$PWD:/src" -w /src "$PY27_IMAGE" \
+          docker run --rm -v "$PWD:/src:ro" -w /src \
+            -e PYTHONDONTWRITEBYTECODE=1 "$PY27_IMAGE" \
             bash -euo pipefail -c '
-              pip install -q --require-hashes -r .github/requirements-ci.txt
+              pip install -q --require-hashes --only-binary=:all: -r .github/requirements-ci.txt
               git config --global --add safe.directory /src
               python -m unittest discover -s .github/scripts/tests -v
               python .github/scripts/policy_check.py --root .
@@ -83,9 +96,10 @@ jobs:
 
       - name: Check the pyRevit layout
         run: |
-          docker run --rm -v "$PWD:/src" -w /src "$PY27_IMAGE" \
+          docker run --rm -v "$PWD:/src:ro" -w /src \
+            -e PYTHONDONTWRITEBYTECODE=1 "$PY27_IMAGE" \
             bash -euo pipefail -c '
-              pip install -q --require-hashes -r .github/requirements-ci.txt
+              pip install -q --require-hashes --only-binary=:all: -r .github/requirements-ci.txt
               git config --global --add safe.directory /src
               python .github/scripts/structure_check.py --root .
             '
@@ -95,17 +109,26 @@ jobs:
     timeout-minutes: 10
     steps:
       # The whole history is scanned, so a secret that a later commit
-      # deleted is still found. The gitleaks-action wrapper is not used:
-      # it needs a license for organizations.
+      # deleted is still found. The gitleaks-action wrapper is not used: it
+      # needs a license for organizations.
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
           persist-credentials: false
 
+      # Only the history is mounted, read-only, and nothing else of the
+      # checkout. A pull request controls the work tree, and from there it
+      # could switch the scan off: gitleaks loads /repo/.gitleaks.toml and
+      # /repo/.gitleaksignore when they exist, and a .gitattributes line such
+      # as "*.txt -diff" makes git print no text diff for those files. None of
+      # these exists next to a bare .git. --ignore-gitleaks-allow makes a
+      # "gitleaks:allow" comment in the code unable to hide a finding too.
+      # A rule set or an allowlist of our own would live under .github/ (it
+      # needs a code owner's review) and be mounted with --config.
       - name: Scan the git history with gitleaks
         run: |
-          docker run --rm -v "$PWD:/repo" "$GITLEAKS_IMAGE" \
-            git /repo --redact --no-banner -v
+          docker run --rm -v "$PWD/.git:/repo/.git:ro" "$GITLEAKS_IMAGE" \
+            git /repo --redact --no-banner -v --ignore-gitleaks-allow
 
   language:
     runs-on: ubuntu-latest
@@ -117,7 +140,8 @@ jobs:
 
       - name: Check that code, comments and UI text are in English
         run: |
-          docker run --rm -v "$PWD:/src" -w /src "$PY27_IMAGE" \
+          docker run --rm -v "$PWD:/src:ro" -w /src \
+            -e PYTHONDONTWRITEBYTECODE=1 "$PY27_IMAGE" \
             bash -euo pipefail -c '
               git config --global --add safe.directory /src
               python .github/scripts/language_check.py --root .
