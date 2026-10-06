@@ -198,6 +198,67 @@ class Structure(unittest.TestCase):
         missing = os.path.join(self.root, 'missing.json')
         self.assertEqual(self.run_main(['--root', self.root, '--config', missing]), 2)
 
+    # pyRevit finds script.py, config.py and bundle.yaml by suffix (the first
+    # os.listdir entry that ends with the name on the legacy loader, a
+    # case-insensitive match on the new one), so a decoy with a prefix can
+    # replace the real file.
+
+    def test_decoy_bundle_yaml_in_a_pushbutton(self):
+        self.write(TAB + '/Favorites.panel/Rename.pushbutton/0bundle.yaml',
+                   'engine:\n  clean: true\n')
+        self.assertFlags('0bundle.yaml')
+
+    def test_decoy_bundle_yaml_in_a_panel(self):
+        self.write(TAB + '/Favorites.panel/0bundle.yaml', 'layout:\n  - Inspect\n')
+        self.assertFlags('0bundle.yaml')
+
+    def test_decoy_script_next_to_script(self):
+        self.write(TAB + '/Favorites.panel/Rename.pushbutton/0script.py', 'x = 1\n')
+        self.assertFlags('0script.py')
+
+    def test_config_py_in_a_pushbutton(self):
+        self.write(TAB + '/Favorites.panel/Rename.pushbutton/config.py', 'x = 1\n')
+        self.assertFlags('config.py')
+
+    def test_decoy_names_are_caught_in_any_folder_of_a_tab(self):
+        # A folder with no script.py or bundle.yaml of its own, so that a name
+        # that differs only in case cannot overwrite them on Windows.
+        for name in ('Ascript.py', 'xconfig.py', 'script.cs', 'Script.py',
+                     'config.py.bak', 'Nobundle.yaml', 'Bundle.yaml'):
+            folder = TAB + '/Tools.panel/Spare.pushbutton/'
+            self.write(folder + name, 'x = 1\n')
+            self.assertFlags(name)
+            self.remove(folder + name)
+
+    def test_names_that_only_look_similar_are_fine(self):
+        self.write(TAB + '/Tools.panel/Nav.stack/scripts.txt', 'x\n')
+        self.write(TAB + '/Tools.panel/Nav.stack/configuration.md', 'x\n')
+        self.assertEqual(self.check(), [])
+
+    def test_pushbutton_may_hold_a_bundle_yaml(self):
+        self.write(TAB + '/Favorites.panel/Rename.pushbutton/bundle.yaml', 'title: Rename\n')
+        self.assertEqual(self.check(), [])
+
+    def test_pushbutton_with_any_other_file(self):
+        self.write(TAB + '/Favorites.panel/Rename.pushbutton/notes.txt', 'x\n')
+        self.assertFlags('notes.txt')
+
+    def test_pushbutton_with_a_subfolder(self):
+        self.button(TAB + '/Favorites.panel/Rename.pushbutton/Inner.pushbutton')
+        self.assertFlags('Rename.pushbutton/Inner.pushbutton')
+
+    def test_folder_without_a_bundle_suffix_in_a_tab(self):
+        self.write(TAB + '/Tools.panel/bin/helper.txt', 'x\n')
+        self.assertFlags('bin')
+
+    def test_lib_folder_inside_a_pushbutton(self):
+        self.write(TAB + '/Favorites.panel/Rename.pushbutton/lib/helper.txt', 'x\n')
+        self.assertFlags('Rename.pushbutton/lib')
+
+    def test_script_file_outside_a_tab_is_not_a_bundle_file(self):
+        self.write('lib/0script.py', 'x = 1\n')
+        self.assertEqual(self.check(), [])
+
 
 if __name__ == '__main__':
     unittest.main()

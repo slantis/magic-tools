@@ -5,6 +5,13 @@ Catches what pyRevit would get wrong in silence (a tool missing from its
 layout, without an icon or without a title) and the folder types that run
 code nobody reviews here (extension hooks, URL buttons, ...).
 
+pyRevit finds script.py, config.py and bundle.yaml by suffix, so a decoy such
+as 0bundle.yaml or Ascript.py can take the place of the real file. Inside a
+tab, the only names that look like those files are the exact ones, a
+pushbutton holds only script.py, bundle.yaml and its icons, and every folder
+is a bundle of an allowed type (a folder with no suffix would be added to the
+module paths).
+
 Usage:
     python .github/scripts/structure_check.py --root . [--config .github/policy/policy.json]
 
@@ -17,7 +24,6 @@ from __future__ import print_function
 
 import argparse
 import ast
-import json
 import os
 import sys
 
@@ -108,16 +114,55 @@ def _check_root(tree, config):
 
 
 def _check_bundle_types(tree, config):
+    """Every folder inside a tab is a bundle of an allowed type.
+
+    A folder with an unknown suffix (.urlbutton, ...) opens or runs something
+    nobody reviewed here. A folder with no suffix is no bundle at all, but
+    pyRevit adds the lib and bin folders of a component to the module paths.
+    """
     found = []
+    allowed = ', '.join(config['bundle_types'])
     for folder in sorted(tree.dirs):
-        name = folder.split('/')[-1]
-        if not _in_tab(folder) or '.' not in name:
+        if not _in_tab(folder):
             continue
-        if _suffix(name) not in config['bundle_types']:
+        suffix = _suffix(folder.split('/')[-1])
+        if suffix in config['bundle_types']:
+            continue
+        if suffix:
             found.append(_finding(
                 folder, u'bundle type {0} is not allowed: pyRevit would run or '
                         'open something nobody reviewed here (allowed: {1})'.format(
-                            _suffix(name), ', '.join(config['bundle_types']))))
+                            suffix, allowed)))
+        else:
+            found.append(_finding(
+                folder, u'folder without a bundle suffix inside a tab: pyRevit adds '
+                        'the lib and bin folders of a component to the module paths '
+                        '(allowed suffixes: {0})'.format(allowed)))
+    return found
+
+
+def _check_lookup_names(tree):
+    """No file inside a tab may be mistaken for a bundle file.
+
+    pyRevit finds script.py, config.py and bundle.yaml by suffix, not by exact
+    name: the legacy loader takes the first os.listdir entry that ends with
+    the name, the new one matches *script.py and *_script.py (and config.py
+    by suffix) ignoring case. A decoy such as 0bundle.yaml or Ascript.py can
+    therefore replace the real file, so only the exact names are allowed.
+    """
+    found = []
+    for path in sorted(tree.files):
+        if not _in_tab(path):
+            continue
+        name = path.split('/')[-1]
+        lower = name.lower()
+        looks_like = (lower.endswith(BUNDLE_YAML) or 'script.' in lower
+                      or 'config.' in lower)
+        if looks_like and name not in (BUNDLE_YAML, SCRIPT):
+            found.append(_finding(
+                path, u'"{0}" could be picked up by pyRevit instead of {1} or {2} '
+                      '(it matches them by suffix, ignoring case); rename it'.format(
+                          name, SCRIPT, BUNDLE_YAML)))
     return found
 
 
@@ -204,8 +249,10 @@ def _module_names(tree):
 def _check_script(root, rel):
     try:
         source = read_text(os.path.join(root, *rel.split('/')))
-        # Python 2 refuses a unicode string with an encoding line: parse bytes.
-        tree = ast.parse(source.encode('utf-8'), rel)
+        # Python 2 refuses a unicode string with an encoding line, so parse
+        # bytes. The file name is a fixed ASCII str: Python 2 cannot encode a
+        # non-ASCII path as a filename, and the finding carries the real path.
+        tree = ast.parse(source.encode('utf-8'), SCRIPT)
     except UnicodeDecodeError:
         return [_finding(rel, 'script.py is not valid UTF-8')]
     except (SyntaxError, ValueError) as err:
@@ -227,6 +274,16 @@ def _check_pushbuttons(root, tree, config):
     for folder in sorted(tree.dirs):
         if not _in_tab(folder) or not folder.endswith(PUSHBUTTON):
             continue
+        # Nothing else may sit next to the script: see _check_lookup_names.
+        allowed = set([SCRIPT, BUNDLE_YAML] + list(config['icons']))
+        for name in tree.children(folder):
+            if name not in allowed:
+                kind = u'folder' if _join(folder, name) in tree.dirs else u'file'
+                found.append(_finding(
+                    _join(folder, name),
+                    u'{0} "{1}" is not allowed in a pushbutton: only {2}, {3} and '
+                    'the icons ({4})'.format(kind, name, SCRIPT, BUNDLE_YAML,
+                                            ', '.join(config['icons']))))
         script = _join(folder, SCRIPT)
         if script in tree.files:
             found.extend(_check_script(root, script))
@@ -244,8 +301,8 @@ def _check_groups(root, tree, config):
     if not path or path not in tree.files:
         return []
     try:
-        groups = json.loads(read_text(os.path.join(root, *path.split('/'))))
-    except (ValueError, UnicodeDecodeError) as err:
+        groups = load_json(os.path.join(root, *path.split('/')))
+    except ValueError as err:  # includes UnicodeDecodeError
         return [_finding(path, u'groups file cannot be read: {0}'.format(_describe(err)))]
     listed = set()
     found = []
@@ -286,6 +343,7 @@ def check_structure(root, config):
     found = []
     found.extend(_check_root(tree, config))
     found.extend(_check_bundle_types(tree, config))
+    found.extend(_check_lookup_names(tree))
     found.extend(_check_bundles(root, tree, config))
     found.extend(_check_pushbuttons(root, tree, config))
     found.extend(_check_groups(root, tree, config))
@@ -293,6 +351,9 @@ def check_structure(root, config):
 
 
 def _print(text):
+    # The same few lines are in language_check.py. They stay a copy in each
+    # script because ci_common.py is not edited by this change; move them there
+    # in a follow-up.
     try:
         print(text)
     except UnicodeEncodeError:

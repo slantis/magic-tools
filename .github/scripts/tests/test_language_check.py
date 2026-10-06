@@ -174,6 +174,118 @@ class Language(unittest.TestCase):
         code, out = self.run_main(['--hash-name', 'Zorb\u00e1q'])
         self.assertEqual((code, out.strip()), (0, h('zorbaq')))
 
+    # The name rule reads every text file outside .github/, and every path.
+
+    def test_names_in_every_text_file_type(self):
+        self.assertEqual(self.rules_for('lib/a.svg', '<!-- Zorbaq -->\n'), ['name'])
+        self.assertEqual(self.rules_for('lib/a.txt', 'quillex\n'), ['name'])
+        self.assertEqual(self.rules_for('lib/a.yml', 'owner: quillex\n'), ['name'])
+        self.assertEqual(self.rules_for('LICENSE', 'Copyright Zorbaq\n'), ['name'])
+        self.assertEqual(self.rules_for('.gitignore', '# Zorbaq\n'), ['name'])
+
+    def test_spanish_is_still_limited_to_scan_exts(self):
+        self.assertEqual(self.rules_for('LICENSE', 'esto es para que\n'), [])
+        self.assertEqual(self.rules_for('lib/a.txt', 'esto es para que\n'), [])
+
+    def test_text_under_dot_github_is_still_skipped_for_names(self):
+        self.assertEqual(self.rules_for('.github/CODEOWNERS', '* @zorbaq\n'), [])
+
+    def test_names_in_file_and_folder_names(self):
+        self.write('lib/Zorbaq/a.png', 'x')
+        self.write('lib/quillex_tools.png', 'x')
+        self.write('lib/fine/b.png', 'x')
+        found = lc.check_language(self.root, CONFIG)
+        self.assertEqual([(f.path, f.line, f.rule) for f in found],
+                         [('lib/Zorbaq/a.png', 0, 'name'),
+                          ('lib/quillex_tools.png', 0, 'name')])
+
+    def test_names_in_the_path_of_a_tooling_file(self):
+        self.assertEqual(self.rules_for('.github/scripts/zorbaq.py', 'x = 1\n'), ['name'])
+
+    # CamelCase is split in addition to the plain word split.
+
+    def test_camel_case_names(self):
+        for text in ('ZorbaqRule = 1\n', 'ruleOfZorbaq = 1\n', 'ZorbaqTools = 1\n',
+                     'QUILLEXTools = 1\n', '# see ZorbaqTools\n'):
+            self.assertEqual(self.rules_for('lib/a.py', text), ['name'], text)
+        self.assertEqual(self.rules_for('README.md', 'See ZorbaqTools\n'), ['name'])
+
+    def test_camel_case_does_not_flag_longer_words(self):
+        for text in ('Zorbaqfilm = 1\n', 'ZORBAQFILM = 1\n', 'aZorbaqb = 1\n'):
+            self.assertEqual(self.rules_for('lib/a.py', text), [], text)
+
+    # String literals are decoded before the words are read.
+
+    def test_escapes_in_strings_are_decoded(self):
+        self.assertEqual(self.rules_for('lib/a.py', "x = u'acci\\u00f3n'\n"), ['spanish'])
+        self.assertEqual(self.rules_for('lib/a.py', "x = 'Zorb\\xe1q'\n"), ['name', 'spanish'])
+        self.assertEqual(self.rules_for('lib/a.py', "x = 'a\\nzorbaq'\n"), ['name'])
+        self.assertEqual(self.rules_for('lib/a.py', "x = b'acci\\xc3\\xb3n'\n"), ['spanish'])
+
+    def test_plain_str_escapes_are_read_as_utf8_on_every_python(self):
+        # Python 2 bytes: two escapes spell one letter. Python 3 text would
+        # read them as two letters, so the check reads both the Python 2 way.
+        self.assertEqual(self.rules_for('lib/a.py', "x = 'acci\\xc3\\xb3n'\n"), ['spanish'])
+        # A UTF-8 byte order mark written as escapes is not an inverted mark.
+        self.assertEqual(self.rules_for(
+            'lib/a.py', 'if raw.startswith("\\xef\\xbb\\xbf"):  # tolerate a BOM\n'), [])
+
+    def test_escaped_newline_in_a_docstring_keeps_the_line_numbers(self):
+        self.write('lib/a.py', 'def f():\n    """First.\n    Line\\nPatterns quillex\n'
+                               '    esto es para que\n    """\n')
+        found = lc.check_language(self.root, CONFIG)
+        self.assertEqual([(f.line, f.rule) for f in found], [(3, 'name'), (4, 'spanish')])
+
+    def test_escaped_text_is_reported_on_its_line(self):
+        self.write('lib/a.py', "x = 1\ny = 'ok\\nesto es para que'\n")
+        found = lc.check_language(self.root, CONFIG)
+        self.assertEqual([(f.line, f.rule) for f in found], [(2, 'spanish')])
+
+    def test_string_that_cannot_be_decoded_is_read_raw(self):
+        self.assertEqual(self.rules_for(
+            'lib/a.py', "x = '\\N{nope} esto es para que'\n"), ['spanish'])
+
+    # The allow list: schema and what an entry silences.
+
+    def test_empty_allow_text_is_a_config_error(self):
+        for entry in ({'path': 'lib/a.py', 'text': ''}, {'path': '', 'text': 'x'},
+                      {'path': 'lib/a.py'}):
+            config = dict(CONFIG, allow=[entry])
+            self.assertRaises(lc.ConfigError, lc.check_language, self.root, config)
+
+    def test_bad_allow_rules_are_a_config_error(self):
+        for rules in ([], ['other'], 'spanish'):
+            config = dict(CONFIG, allow=[{'path': 'lib/a.py', 'text': 'x', 'rules': rules}])
+            self.assertRaises(lc.ConfigError, lc.check_language, self.root, config)
+
+    def test_allow_silences_only_spanish_by_default(self):
+        config = dict(CONFIG, allow=[{'path': 'lib/a.py', 'text': 'esto es'}])
+        self.write('lib/a.py', '# esto es para que zorbaq\n')
+        found = lc.check_language(self.root, config)
+        self.assertEqual([f.rule for f in found], ['name'])
+
+    def test_allow_can_silence_a_name(self):
+        config = dict(CONFIG, allow=[{'path': 'lib/a.py', 'text': 'zorbaq', 'rules': ['name']}])
+        self.write('lib/a.py', '# esto es para que zorbaq\n')
+        found = lc.check_language(self.root, config)
+        self.assertEqual([f.rule for f in found], ['spanish'])
+
+    def test_allow_can_silence_both(self):
+        config = dict(CONFIG, allow=[{'path': 'lib/a.py', 'text': 'zorbaq',
+                                      'rules': ['spanish', 'name']}])
+        self.write('lib/a.py', '# esto es para que zorbaq\n')
+        self.assertEqual(lc.check_language(self.root, config), [])
+
+    def test_main_reports_a_bad_allow_entry(self):
+        cfg_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, cfg_dir)
+        cfg = os.path.join(cfg_dir, 'language.json')
+        with io.open(cfg, 'w', encoding='utf-8') as fh:
+            fh.write(json.dumps(dict(CONFIG, allow=[{'path': 'lib/a.py', 'text': ''}])))
+        code, out = self.run_main(['--root', self.root, '--config', cfg])
+        self.assertEqual(code, 2)
+        self.assertIn('allow', out)
+
 
 if __name__ == '__main__':
     unittest.main()
