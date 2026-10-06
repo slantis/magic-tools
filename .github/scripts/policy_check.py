@@ -96,6 +96,19 @@ HEX_RUN = re.compile(r'[0-9A-Fa-f]{80,}')
 HTTP_URL = re.compile(r'https?://', re.I)
 
 # --- XAML and SVG rules -------------------------------------------------------
+# Both are matched as text after decoding character references, so
+# "&#104;ttp://" reads as "http://" and "&#97;ssembly=" as "assembly=".
+
+XML_REFERENCE = re.compile(r'&(?:#([0-9]+)|#[xX]([0-9A-Fa-f]+)|(amp|lt|gt|quot|apos));')
+XML_ENTITIES = {'amp': u'&', 'lt': u'<', 'gt': u'>', 'quot': u'"', 'apos': u"'"}
+# Browsers drop these inside a URL scheme ("java<TAB>script:"), so the scheme
+# patterns let them sit between any two characters.
+SCHEME_NOISE = re.compile(r'[\t\r\n\x00]')
+
+
+def _scheme(word):
+    return (SCHEME_NOISE.pattern + '*').join(re.escape(char) for char in word)
+
 
 XAML_FORBIDDEN = (
     (re.compile(r'ObjectDataProvider', re.I), 'ObjectDataProvider'),
@@ -104,10 +117,15 @@ XAML_FORBIDDEN = (
     # XamlReader inside a tag (such as {x:Type m:XamlReader}); prose that names
     # it, in a comment or in a Python docstring next to xmlns, is not markup.
     (re.compile(r'<(?!!)[^<>]*XamlReader', re.I), 'XamlReader'),
+    (re.compile(r'\\\\[^\\/\s"\'<>]+[\\/]'), 'UNC path'),
 )
 XAML_CLR_ASSEMBLY = re.compile(
     r'clr-namespace:[^;"\'<>]*;\s*assembly\s*=\s*([^"\'\s;,<>]*)', re.I)
-XAML_URI = re.compile(r'(?:https?|ftp|file)://[^\s"\'<>]*', re.I)
+# Any URL, pack://siteoforigin (files next to the host program) and file: in
+# any form; "file:" needs something after it, so "Pick a file: x" is text.
+XAML_URI = re.compile(r'\b(?:(?:{0})[^\s"\'<>]*|{1}[^\s"\'<>]+)'.format(
+    '|'.join(_scheme(s) for s in ('https://', 'http://', 'ftp://', 'pack://siteoforigin')),
+    _scheme('file:')), re.I)
 XAML_NAMESPACE_PREFIX = 'http://schemas.microsoft.com/'
 XAML_NAMESPACES = ('http://schemas.openxmlformats.org/markup-compatibility/2006',)
 
@@ -116,8 +134,9 @@ SVG_FORBIDDEN = (
     (re.compile(r'<foreignObject', re.I), '<foreignObject> element'),
     (re.compile(r'<!ENTITY', re.I), 'entity declaration'),
     (re.compile(r'\bon\w+\s*=', re.I), 'event handler attribute'),
-    (re.compile(r'javascript:', re.I), 'javascript: URI'),
-    (re.compile(r'\bhref\s*=\s*["\']?\s*(?:http|//|file:|data:)', re.I),
+    (re.compile(_scheme('javascript:'), re.I), 'javascript: URI'),
+    (re.compile(r'\bhref\s*=\s*["\']?\s*(?:{0})'.format(
+        '|'.join(_scheme(s) for s in ('http', '//', 'file:', 'data:'))), re.I),
      'external or data: href'),
 )
 
@@ -147,6 +166,25 @@ def _hit_findings(relpath, hits):
     return [Finding(relpath, line, rule, message) for line, rule, message in sorted(set(hits))]
 
 
+def _decode_reference(match):
+    number, hexadecimal, name = match.groups()
+    if name:
+        return XML_ENTITIES[name]
+    try:
+        code = int(number) if number else int(hexadecimal, 16)
+        char = struct.pack('<I', code).decode('utf-32-le')
+    except (struct.error, OverflowError, ValueError):  # not a character
+        return u''
+    # Tab, CR, LF and NUL decode to nothing: line numbers stay put, and a
+    # scheme split by them is joined the way browsers join it.
+    return u'' if SCHEME_NOISE.match(char) else char
+
+
+def _decode_references(text):
+    """Text with numeric character references and the five XML entities decoded."""
+    return XML_REFERENCE.sub(_decode_reference, text)
+
+
 # --- XAML ---------------------------------------------------------------------
 
 def _allowed_xaml_uri(uri):
@@ -155,6 +193,7 @@ def _allowed_xaml_uri(uri):
 
 
 def _xaml_problems(text, config):
+    """(offset, message) problems in text whose references are already decoded."""
     allowed = set(name.lower() for name in config['assemblies'])
     problems = []
     for pattern, what in XAML_FORBIDDEN:
@@ -165,18 +204,21 @@ def _xaml_problems(text, config):
             problems.append((m.start(), u'clr-namespace from assembly "{0}", which is not in '
                                         u'the policy'.format(m.group(1))))
     for m in XAML_URI.finditer(text):
-        if not _allowed_xaml_uri(m.group(0)):
-            problems.append((m.start(), u'external URI {0}'.format(m.group(0))))
+        uri = SCHEME_NOISE.sub(u'', m.group(0))
+        if not _allowed_xaml_uri(uri):
+            problems.append((m.start(), u'external URI {0}'.format(uri)))
     return problems
 
 
 def check_xaml_source(relpath, text, config):
+    text = _decode_references(text)
     return _text_findings(relpath, text, _xaml_problems(text, config), 'xaml')
 
 
 # --- SVG ----------------------------------------------------------------------
 
 def check_svg_source(relpath, text):
+    text = _decode_references(text)
     problems = []
     for pattern, what in SVG_FORBIDDEN:
         problems.extend((m.start(), u'{0} is not allowed'.format(what))
@@ -420,7 +462,8 @@ def _literal_hits(literals, config):
         if BASE64_RUN.search(text) or HEX_RUN.search(text):
             hits.append((line, 'encoded-string', u'string literal looks like encoded data'))
         if 'xmlns' in text.lower():
-            hits.extend((line, 'xaml', message) for _, message in _xaml_problems(text, config))
+            problems = _xaml_problems(_decode_references(text), config)
+            hits.extend((line, 'xaml', message) for _, message in problems)
     return hits
 
 

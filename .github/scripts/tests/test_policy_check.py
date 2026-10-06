@@ -34,6 +34,28 @@ def rules(findings):
     return sorted(set(f.rule for f in findings))
 
 
+class Capture(object):
+    """Stands in for sys.stdout, on Python 2 and 3."""
+
+    def __init__(self):
+        self.parts = []
+
+    def write(self, text):
+        self.parts.append(text)
+
+    def flush(self):
+        pass
+
+
+def run_main(argv):
+    """Exit code of pc.main(argv), with its printed report kept out of the test log."""
+    saved, sys.stdout = sys.stdout, Capture()
+    try:
+        return pc.main(argv)
+    finally:
+        sys.stdout = saved
+
+
 def tiny_png():
     def chunk(kind, data):
         body = kind + data
@@ -133,6 +155,11 @@ class PythonRules(unittest.TestCase):
     def test_xaml_inside_a_python_string(self):
         src = ('X = """<Window xmlns="http://schemas.microsoft.com/winfx/2006/'
                'xaml/presentation"><ObjectDataProvider/></Window>"""\n')
+        self.assertIn('xaml', rules(self.check(src)))
+
+    def test_xaml_inside_a_python_string_is_decoded(self):
+        src = ('X = """<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">'
+               '<Image Source="&#104;ttp://evil.example/a.png"/></Window>"""\n')
         self.assertIn('xaml', rules(self.check(src)))
 
     def test_syntax_error_is_a_finding(self):
@@ -263,6 +290,30 @@ class XamlRules(unittest.TestCase):
         self.assertIn('xaml', rules(self.check(
             '<Image Source="https://evil.example/a.png"/>')))
 
+    def test_character_references_are_decoded(self):
+        for body in ['<Grid xmlns:e="clr-namespace:E;&#97;ssembly=Evil"/>',
+                     '<Image Source="h&#116;tps://evil.example/a.png"/>',
+                     '<Image Source="&#104;ttp://evil.example/a.png"/>',
+                     '<Image Source="&#x68;ttp://evil.example/a.png"/>',
+                     '<Image Source="h&#10;ttp://evil.example/a.png"/>',
+                     '<Image Source="ht\ttp://evil.example/a.png"/>']:
+            self.assertIn('xaml', rules(self.check(body)), body)
+
+    def test_decoding_keeps_line_numbers(self):
+        found = pc.check_xaml_source(
+            'lib/a.xaml', self.HEAD + '<Grid Tag="&#10;&#xA;&#13;"/>\n'
+            '<Image Source="https://evil.example/a.png"/></Window>', CONFIG)
+        self.assertEqual([f.line for f in found], [2])
+
+    def test_site_of_origin_and_unc_paths(self):
+        for body in ['<Image Source="pack://siteoforigin:,,,/a.png"/>',
+                     '<Image Source="\\\\host\\share\\a.png"/>',
+                     '<Image Source="file:\\\\host\\share\\a.png"/>',
+                     '<Image Source="file:///C:/a.png"/>']:
+            self.assertIn('xaml', rules(self.check(body)), body)
+        self.assertEqual(self.check('<Image Source="pack://application:,,,/a.png"/>'
+                                    '<TextBlock Text="Pick a file: any"/>'), [])
+
     def test_xamlreader_in_markup(self):
         self.assertIn('xaml', rules(self.check('<Grid Tag="{x:Type m:XamlReader}"/>')))
 
@@ -284,6 +335,16 @@ class SvgRules(unittest.TestCase):
                      '<foreignObject/>', '<use href="https://evil.example/a.svg#x"/>',
                      '<use xlink:href="//evil.example/a.svg"/>',
                      '<a href="javascript:x()"/>']:
+            self.assertIn('svg', rules(self.check(body)), body)
+
+    def test_character_references_and_scheme_whitespace(self):
+        for body in ['<a href="&#106;avascript:x()"/>',
+                     '<a href="java\tscript:x()"/>',
+                     '<a href="java&#9;script:x()"/>',
+                     '<use href="&#104;ttp://evil.example/a.svg#x"/>',
+                     '<use href="&#x68;ttps://evil.example/a.svg#x"/>',
+                     '<use xlink:href="h\nttp://evil.example/a.svg#x"/>',
+                     '<image href="&#100;ata:image/png;base64,AAAA"/>']:
             self.assertIn('svg', rules(self.check(body)), body)
 
     def test_entity(self):
@@ -373,9 +434,9 @@ class RepoRules(unittest.TestCase):
             fh.write('{"tooling_dirs": [".github/"], "assemblies": [], "font_hashes": {}, '
                      '"png_max_bytes": 65536, "telemetry": {"module": null, "url": null}}')
         # policy.json itself sits in the extension zone of this fixture: allowed (.json)
-        self.assertEqual(pc.main(['--root', self.root, '--config', cfg]), 0)
+        self.assertEqual(run_main(['--root', self.root, '--config', cfg]), 0)
         self.write('lib/b.py', 'import socket\n')
-        self.assertEqual(pc.main(['--root', self.root, '--config', cfg]), 1)
+        self.assertEqual(run_main(['--root', self.root, '--config', cfg]), 1)
 
     def test_symlink_on_disk(self):
         self.write('lib/a.py', 'import os\n')
