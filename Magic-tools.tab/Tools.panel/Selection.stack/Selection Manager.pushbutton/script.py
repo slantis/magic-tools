@@ -14,6 +14,8 @@ __persistentengine__ = True
 import traceback
 
 import selmgr
+import usage
+
 # Hot-reload on every click: this door is the ONLY caller of selmgr.py, and
 # unlike modeless.py (which several tools share and which owns state that a
 # reload would wipe -- _OPEN, _EVENT, _HANDLER) selmgr.py holds nothing at
@@ -26,12 +28,14 @@ try:
 except Exception:
     pass
 
-try:
-    selmgr.open_window()
-except Exception:
-    traceback.print_exc()
+with usage.tool_run(__file__) as run:
     try:
-        from slantisui import ui
-        ui.alert(traceback.format_exc(), title=u"Selection Manager - Error")
+        selmgr.open_window()
     except Exception:
-        pass
+        run.error()
+        traceback.print_exc()
+        try:
+            from slantisui import ui
+            ui.alert(traceback.format_exc(), title=u"Selection Manager - Error")
+        except Exception:
+            pass

@@ -20,8 +20,11 @@ __persistentengine__ = True
 import traceback
 
 import findroom
+import usage
 
-try:
-    findroom.open_window()
-except Exception:
-    traceback.print_exc()
+with usage.tool_run(__file__) as run:
+    try:
+        findroom.open_window()
+    except Exception:
+        run.error()
+        traceback.print_exc()

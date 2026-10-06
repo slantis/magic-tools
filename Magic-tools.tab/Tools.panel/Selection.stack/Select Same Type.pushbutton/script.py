@@ -17,6 +17,7 @@ from System.Collections.Generic import List
 
 from pyrevit import revit, script
 from slantisui import ui
+import usage
 
 def _id_val(eid):
     # ElementId value compat Revit 2022-2026 (IntegerValue removed in 2026)
@@ -48,47 +49,49 @@ def seed_elements():
     return [doc.GetElement(r.ElementId) for r in refs]
 
 
-try:
-    view = doc.ActiveView
-    seeds = [e for e in seed_elements() if e is not None]
-    if not seeds:
-        script.exit()
-
-    type_ids = set()
-    for e in seeds:
-        try:
-            tid = e.GetTypeId()
-        except Exception:
-            continue
-        if tid is not None and tid != ElementId.InvalidElementId:
-            type_ids.add(_id_val(tid))
-    if not type_ids:
-        ui.alert("None of the selected elements has a type to match "
-                 "(elements with no type at all, like a curtain grid "
-                 "line, do not).", title=TITLE)
-        script.exit()
-
-    found = []
-    for e in (FilteredElementCollector(doc, view.Id)
-              .WhereElementIsNotElementType()):
-        try:
-            tid = e.GetTypeId()
-        except Exception:
-            continue
-        if tid is not None and _id_val(tid) in type_ids:
-            found.append(e.Id)
-
-    if not found:
-        ui.alert("No element of that type is visible in this view.",
-                 title=TITLE)
-        script.exit()
-    # Quiet on success: Revit's own status bar shows the count, and a dialog
-    # after every quick action would defeat the point of a quick action.
-    uidoc.Selection.SetElementIds(List[ElementId](found))
-except Exception as ex:
-    traceback.print_exc()
+with usage.tool_run(__file__) as run:
     try:
-        ui.alert("Select Same Type ran into an error:\n{}".format(ex),
-                 title=TITLE)
-    except Exception:
-        pass
+        view = doc.ActiveView
+        seeds = [e for e in seed_elements() if e is not None]
+        if not seeds:
+            script.exit()
+
+        type_ids = set()
+        for e in seeds:
+            try:
+                tid = e.GetTypeId()
+            except Exception:
+                continue
+            if tid is not None and tid != ElementId.InvalidElementId:
+                type_ids.add(_id_val(tid))
+        if not type_ids:
+            ui.alert("None of the selected elements has a type to match "
+                     "(elements with no type at all, like a curtain grid "
+                     "line, do not).", title=TITLE)
+            script.exit()
+
+        found = []
+        for e in (FilteredElementCollector(doc, view.Id)
+                  .WhereElementIsNotElementType()):
+            try:
+                tid = e.GetTypeId()
+            except Exception:
+                continue
+            if tid is not None and _id_val(tid) in type_ids:
+                found.append(e.Id)
+
+        if not found:
+            ui.alert("No element of that type is visible in this view.",
+                     title=TITLE)
+            script.exit()
+        # Quiet on success: Revit's own status bar shows the count, and a dialog
+        # after every quick action would defeat the point of a quick action.
+        uidoc.Selection.SetElementIds(List[ElementId](found))
+    except Exception as ex:
+        run.error()
+        traceback.print_exc()
+        try:
+            ui.alert("Select Same Type ran into an error:\n{}".format(ex),
+                     title=TITLE)
+        except Exception:
+            pass

@@ -23,13 +23,16 @@ __persistentengine__ = True
 import traceback
 
 import printsetmanager
+import usage
 
-try:
-    printsetmanager.open_window()
-except Exception:
-    traceback.print_exc()
+with usage.tool_run(__file__) as run:
     try:
-        from slantisui import ui
-        ui.alert(traceback.format_exc(), title=u"Print Set Manager - Error")
+        printsetmanager.open_window()
     except Exception:
-        pass
+        run.error()
+        traceback.print_exc()
+        try:
+            from slantisui import ui
+            ui.alert(traceback.format_exc(), title=u"Print Set Manager - Error")
+        except Exception:
+            pass

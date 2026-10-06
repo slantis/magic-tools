@@ -2,7 +2,9 @@
 """Boot of Magic Tools: on the first Idling, arm the launcher and hide the
 Favorites tools that are not starred (lib/lab_startup.py does the work).
 
-Boot makes no network calls, sends no telemetry and changes no pyRevit settings.
+Boot changes no pyRevit settings. It sends usage data only for a user who
+opted in to it (lib/telemetry.py, TELEMETRY.md), and then on a background
+thread; it never asks, since the question waits for the first click of a tool.
 """
 import os
 

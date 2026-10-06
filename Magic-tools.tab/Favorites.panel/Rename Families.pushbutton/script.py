@@ -22,6 +22,7 @@ from System.Windows.Media import SolidColorBrush, ColorConverter
 from System.Windows.Threading import DispatcherTimer
 
 from slantisui import ui
+import usage
 
 
 def _brush(hexstr):
@@ -889,49 +890,50 @@ def _live_move(live, row, new_name):
     row._held = new_name
 
 
-fam_rows, fixed_names, anno_cats = collect()
+with usage.tool_run(__file__) as run:
+    fam_rows, fixed_names, anno_cats = collect()
 
-if not fam_rows:
-    ui.alert("No loadable families found in this document.",
-             title="Rename Families", context=doc.Title)
-    script.exit()
+    if not fam_rows:
+        ui.alert("No loadable families found in this document.",
+                 title="Rename Families", context=doc.Title)
+        script.exit()
 
-acronyms = load_acronyms() | BUILTIN_ACRONYMS
-all_rows = []
-for f in fam_rows:
-    all_rows.append(f)
-    all_rows.extend(f.children)
+    acronyms = load_acronyms() | BUILTIN_ACRONYMS
+    all_rows = []
+    for f in fam_rows:
+        all_rows.append(f)
+        all_rows.extend(f.children)
 
-total_fams = len(fam_rows)
-total_types = len(all_rows) - total_fams
+    total_fams = len(fam_rows)
+    total_types = len(all_rows) - total_fams
 
-# The root level of the tree. Categories are NOT part of all_rows on purpose:
-# nothing about them is ever renamed, and keeping them out of that list is what
-# guarantees the write loop can never reach a row with no element behind it.
-_by_cat = {}
-for f in fam_rows:
-    _by_cat.setdefault(f.Category, []).append(f)
+    # The root level of the tree. Categories are NOT part of all_rows on purpose:
+    # nothing about them is ever renamed, and keeping them out of that list is what
+    # guarantees the write loop can never reach a row with no element behind it.
+    _by_cat = {}
+    for f in fam_rows:
+        _by_cat.setdefault(f.Category, []).append(f)
 
-cat_rows = []
-for _name in sorted(_by_cat):
-    _fams = _by_cat[_name]
-    _crow = Row(u"Category", u"@cat", u"",
-                u"{} ({})".format(_name, len(_fams)), None)
-    _crow.annotation = _name in anno_cats
-    for _f in _fams:
-        _f._parent = _crow
-        _crow.children.append(_f)
-    cat_rows.append(_crow)
+    cat_rows = []
+    for _name in sorted(_by_cat):
+        _fams = _by_cat[_name]
+        _crow = Row(u"Category", u"@cat", u"",
+                    u"{} ({})".format(_name, len(_fams)), None)
+        _crow.annotation = _name in anno_cats
+        for _f in _fams:
+            _f._parent = _crow
+            _crow.children.append(_f)
+        cat_rows.append(_crow)
 
-total_anno_fams = sum(len(c.children) for c in cat_rows if c.annotation)
-total_model_fams = total_fams - total_anno_fams
+    total_anno_fams = sum(len(c.children) for c in cat_rows if c.annotation)
+    total_model_fams = total_fams - total_anno_fams
 
-# --------------------------------------------------------------------------
-# The window. A DataGrid, not a TreeView: it is the one already styled by
-# slantisui, it virtualises (which matters at a few thousand types) and the
-# expand/collapse is ours to drive anyway, since the family row is the toggle.
-# --------------------------------------------------------------------------
-_BODY = """
+    # --------------------------------------------------------------------------
+    # The window. A DataGrid, not a TreeView: it is the one already styled by
+    # slantisui, it virtualises (which matters at a few thousand types) and the
+    # expand/collapse is ours to drive anyway, since the family row is the toggle.
+    # --------------------------------------------------------------------------
+    _BODY = """
   <Grid>
     <Grid.ColumnDefinitions>
       <ColumnDefinition Width="330"/>
@@ -1111,7 +1113,7 @@ _BODY = """
   </Grid>
 """
 
-_FOOTER = """
+    _FOOTER = """
   <Grid>
     <Grid.ColumnDefinitions>
       <ColumnDefinition Width="*"/>
@@ -1148,234 +1150,234 @@ _FOOTER = """
   </Grid>
 """
 
-win = ui.parse(
-    "Rename Families",
-    "Clean up family and type names in bulk",
-    _BODY, _FOOTER, width=1180, height=720,
-    context=u"{}  --  acronyms kept uppercase by Title Case are listed in {}"
-            .format(doc.Title, ACRONYM_PATH),
-)
+    win = ui.parse(
+        "Rename Families",
+        "Clean up family and type names in bulk",
+        _BODY, _FOOTER, width=1180, height=720,
+        context=u"{}  --  acronyms kept uppercase by Title Case are listed in {}"
+                .format(doc.Title, ACRONYM_PATH),
+    )
 
-txtTag = win.FindName("txtTag")
-txtFind = win.FindName("txtFind")
-txtRepl = win.FindName("txtRepl")
-txtPre = win.FindName("txtPre")
-txtSuf = win.FindName("txtSuf")
-chkFam = win.FindName("chkFam")
-chkTyp = win.FindName("chkTyp")
-lblFam = win.FindName("lblFam")
-lblTyp = win.FindName("lblTyp")
-sldStart = win.FindName("sldStart")
-sldEnd = win.FindName("sldEnd")
-lblStart = win.FindName("lblStart")
-lblEnd = win.FindName("lblEnd")
-rbNone = win.FindName("rbNone")
-rbTitle = win.FindName("rbTitle")
-rbUpper = win.FindName("rbUpper")
-txtFilter = win.FindName("txtFilter")
-chkModel = win.FindName("chkModel")
-chkAnno = win.FindName("chkAnno")
-chkModel.Content = u"Model ({})".format(total_model_fams)
-chkAnno.Content = u"Annotation ({})".format(total_anno_fams)
-grid = win.FindName("grid")
-lblCount = win.FindName("lblCount")
-lblWarn = win.FindName("lblWarn")
-btnAll = win.FindName("btnAll")
-btnOK = win.FindName("btnOK")
-btnCancel = win.FindName("btnCancel")
+    txtTag = win.FindName("txtTag")
+    txtFind = win.FindName("txtFind")
+    txtRepl = win.FindName("txtRepl")
+    txtPre = win.FindName("txtPre")
+    txtSuf = win.FindName("txtSuf")
+    chkFam = win.FindName("chkFam")
+    chkTyp = win.FindName("chkTyp")
+    lblFam = win.FindName("lblFam")
+    lblTyp = win.FindName("lblTyp")
+    sldStart = win.FindName("sldStart")
+    sldEnd = win.FindName("sldEnd")
+    lblStart = win.FindName("lblStart")
+    lblEnd = win.FindName("lblEnd")
+    rbNone = win.FindName("rbNone")
+    rbTitle = win.FindName("rbTitle")
+    rbUpper = win.FindName("rbUpper")
+    txtFilter = win.FindName("txtFilter")
+    chkModel = win.FindName("chkModel")
+    chkAnno = win.FindName("chkAnno")
+    chkModel.Content = u"Model ({})".format(total_model_fams)
+    chkAnno.Content = u"Annotation ({})".format(total_anno_fams)
+    grid = win.FindName("grid")
+    lblCount = win.FindName("lblCount")
+    lblWarn = win.FindName("lblWarn")
+    btnAll = win.FindName("btnAll")
+    btnOK = win.FindName("btnOK")
+    btnCancel = win.FindName("btnCancel")
 
-state = {"go": False, "ready": 0, "why": u"no rule", "plan": None}
-
-
-def case_mode():
-    if rbTitle.IsChecked:
-        return "title"
-    if rbUpper.IsChecked:
-        return "upper"
-    return "none"
+    state = {"go": False, "ready": 0, "why": u"no rule", "plan": None}
 
 
-def _rollup_text(n_fam, n_typ):
-    """"renaming 18 families, 42 types", dropping whichever half is zero."""
-    bits = []
-    if n_fam:
-        bits.append(u"{} famil{}".format(n_fam, u"y" if n_fam == 1 else u"ies"))
-    if n_typ:
-        bits.append(u"{} type{}".format(n_typ, u"" if n_typ == 1 else u"s"))
-    return u"renaming " + u", ".join(bits) if bits else u""
+    def case_mode():
+        if rbTitle.IsChecked:
+            return "title"
+        if rbUpper.IsChecked:
+            return "upper"
+        return "none"
 
 
-def _fam_typ(n_fam, n_typ):
-    return u"{} famil{} and {} type{}".format(
-        n_fam, u"y" if n_fam == 1 else u"ies",
-        n_typ, u"" if n_typ == 1 else u"s")
+    def _rollup_text(n_fam, n_typ):
+        """"renaming 18 families, 42 types", dropping whichever half is zero."""
+        bits = []
+        if n_fam:
+            bits.append(u"{} famil{}".format(n_fam, u"y" if n_fam == 1 else u"ies"))
+        if n_typ:
+            bits.append(u"{} type{}".format(n_typ, u"" if n_typ == 1 else u"s"))
+        return u"renaming " + u", ".join(bits) if bits else u""
 
 
-def _slider_label(chars, _where):
-    """Just the number: the column is narrow and the label beside it already
+    def _fam_typ(n_fam, n_typ):
+        return u"{} famil{} and {} type{}".format(
+            n_fam, u"y" if n_fam == 1 else u"ies",
+            n_typ, u"" if n_typ == 1 else u"s")
+
+
+    def _slider_label(chars, _where):
+        """Just the number: the column is narrow and the label beside it already
     says which end it is cutting."""
-    return u"{}".format(chars) if chars else u"off"
+        return u"{}".format(chars) if chars else u"off"
 
 
-def recompute():
-    """Refresh every proposed name and every clash, then repaint what moved."""
-    do_fam = bool(chkFam.IsChecked)
-    do_typ = bool(chkTyp.IsChecked)
-    TYPES_ON["v"] = do_typ
-    rules = Rules(remove=txtTag.Text or u"",
-                  find=txtFind.Text or u"",
-                  repl=txtRepl.Text or u"",
-                  prefix=txtPre.Text or u"",
-                  suffix=txtSuf.Text or u"",
-                  cut_start=int(sldStart.Value),
-                  cut_end=int(sldEnd.Value),
-                  case=case_mode())
+    def recompute():
+        """Refresh every proposed name and every clash, then repaint what moved."""
+        do_fam = bool(chkFam.IsChecked)
+        do_typ = bool(chkTyp.IsChecked)
+        TYPES_ON["v"] = do_typ
+        rules = Rules(remove=txtTag.Text or u"",
+                      find=txtFind.Text or u"",
+                      repl=txtRepl.Text or u"",
+                      prefix=txtPre.Text or u"",
+                      suffix=txtSuf.Text or u"",
+                      cut_start=int(sldStart.Value),
+                      cut_end=int(sldEnd.Value),
+                      case=case_mode())
 
-    lblStart.Text = _slider_label(rules.cut_start, u"front")
-    lblEnd.Text = _slider_label(rules.cut_end, u"end")
+        lblStart.Text = _slider_label(rules.cut_start, u"front")
+        lblEnd.Text = _slider_label(rules.cut_end, u"end")
 
-    dirty = set()
-    for row in all_rows:
-        active = do_fam if row.is_family else do_typ
-        if active:
-            new, done = apply_rule(row.Current, rules, acronyms)
-            effect = (u"   ·   ".join(done) if done
-                      else (u"" if rules.empty else u"not affected"))
-        else:
-            new, effect = row.Current, u""
-        if row.set_new(new, active, effect):
-            dirty.add(row)
-
-    # -- clashes, live -------------------------------------------------
-    # Reading the NET RESULT of the run (instead of "is that name taken right
-    # now") is what correctly lets an A->B / B->A swap through. Rows that end up
-    # blocked keep their current name and still occupy it, which resolve_clashes
-    # iterates to a fixed point.
-    pre = {}
-    for row in all_rows:
-        if row.Changed:
-            if not row.New.strip():
-                pre[row] = u"the name would be empty"
+        dirty = set()
+        for row in all_rows:
+            active = do_fam if row.is_family else do_typ
+            if active:
+                new, done = apply_rule(row.Current, rules, acronyms)
+                effect = (u"   ·   ".join(done) if done
+                          else (u"" if rules.empty else u"not affected"))
             else:
-                problem = name_problem(row.New)
-                if problem:
-                    pre[row] = problem
-    why = resolve_clashes(all_rows, fixed_names, pre)
+                new, effect = row.Current, u""
+            if row.set_new(new, active, effect):
+                dirty.add(row)
 
-    n_fam = n_typ = sel_fam = sel_typ = tick_fam = tick_typ = 0
-    doomed = []
-    for row in all_rows:
-        status = u""
-        if row.Changed:
-            status = why.get(row, u"")
-            if row.is_family:
-                n_fam += 1
-                if row.picked and not status:
-                    sel_fam += 1
-                    doomed.append(row)
-            else:
-                n_typ += 1
-                if row.picked and not status:
-                    sel_typ += 1
-                    doomed.append(row)
-        if row.active and row.picked:
-            if row.is_family:
-                tick_fam += 1
-            else:
-                tick_typ += 1
-        if row.set_status(status):
-            dirty.add(row)
-
-    # Roll the counts up the tree. Everything below a folded node is invisible
-    # otherwise, and a category that opens folded is the first thing you see:
-    # without this you cannot tell whether the run is about to touch anything in
-    # there without opening every branch to check.
-    for cat in cat_rows:
-        cat_fam = cat_typ = cat_blocked = 0
-        for fam in cat.children:
-            fam_typ = fam_blocked = 0
-            if fam.Changed and fam.picked:
-                if fam.Status:
-                    cat_blocked += 1
+        # -- clashes, live -------------------------------------------------
+        # Reading the NET RESULT of the run (instead of "is that name taken right
+        # now") is what correctly lets an A->B / B->A swap through. Rows that end up
+        # blocked keep their current name and still occupy it, which resolve_clashes
+        # iterates to a fixed point.
+        pre = {}
+        for row in all_rows:
+            if row.Changed:
+                if not row.New.strip():
+                    pre[row] = u"the name would be empty"
                 else:
-                    cat_fam += 1
-            for kid in fam.children:
-                if kid.Changed and kid.picked:
-                    if kid.Status:
-                        fam_blocked += 1
+                    problem = name_problem(row.New)
+                    if problem:
+                        pre[row] = problem
+        why = resolve_clashes(all_rows, fixed_names, pre)
+
+        n_fam = n_typ = sel_fam = sel_typ = tick_fam = tick_typ = 0
+        doomed = []
+        for row in all_rows:
+            status = u""
+            if row.Changed:
+                status = why.get(row, u"")
+                if row.is_family:
+                    n_fam += 1
+                    if row.picked and not status:
+                        sel_fam += 1
+                        doomed.append(row)
+                else:
+                    n_typ += 1
+                    if row.picked and not status:
+                        sel_typ += 1
+                        doomed.append(row)
+            if row.active and row.picked:
+                if row.is_family:
+                    tick_fam += 1
+                else:
+                    tick_typ += 1
+            if row.set_status(status):
+                dirty.add(row)
+
+        # Roll the counts up the tree. Everything below a folded node is invisible
+        # otherwise, and a category that opens folded is the first thing you see:
+        # without this you cannot tell whether the run is about to touch anything in
+        # there without opening every branch to check.
+        for cat in cat_rows:
+            cat_fam = cat_typ = cat_blocked = 0
+            for fam in cat.children:
+                fam_typ = fam_blocked = 0
+                if fam.Changed and fam.picked:
+                    if fam.Status:
+                        cat_blocked += 1
                     else:
-                        fam_typ += 1
-            if fam.set_rollup(_rollup_text(0, fam_typ),
-                              u"{} blocked".format(fam_blocked) if fam_blocked
+                        cat_fam += 1
+                for kid in fam.children:
+                    if kid.Changed and kid.picked:
+                        if kid.Status:
+                            fam_blocked += 1
+                        else:
+                            fam_typ += 1
+                if fam.set_rollup(_rollup_text(0, fam_typ),
+                                  u"{} blocked".format(fam_blocked) if fam_blocked
+                                  else u""):
+                    dirty.add(fam)
+                cat_typ += fam_typ
+                cat_blocked += fam_blocked
+            if cat.set_rollup(_rollup_text(cat_fam, cat_typ),
+                              u"{} blocked".format(cat_blocked) if cat_blocked
                               else u""):
-                dirty.add(fam)
-            cat_typ += fam_typ
-            cat_blocked += fam_blocked
-        if cat.set_rollup(_rollup_text(cat_fam, cat_typ),
-                          u"{} blocked".format(cat_blocked) if cat_blocked
-                          else u""):
-            dirty.add(cat)
+                dirty.add(cat)
 
-    for row in dirty:
-        row.redraw()
+        for row in dirty:
+            row.redraw()
 
-    lblFam.Text = u"{} of {}".format(tick_fam, total_fams) if do_fam else u"off"
-    lblTyp.Text = u"{} of {}".format(tick_typ, total_types) if do_typ else u"off"
+        lblFam.Text = u"{} of {}".format(tick_fam, total_fams) if do_fam else u"off"
+        lblTyp.Text = u"{} of {}".format(tick_typ, total_types) if do_typ else u"off"
 
-    # -- the footer ----------------------------------------------------
-    # It used to report ONLY "will be renamed", so a loaded list with no rule set
-    # yet read as a flat 0 and your own selection was invisible -- the same blind
-    # spot that let a search-filtered Select all leave rows ticked off screen and
-    # rename them. Now it says what is ticked, what that produces, and how much
-    # of it the search box is hiding.
-    shown = set()
-    tickable = []
-    for _cat, fams in filtered_groups():
-        for fam, kids, hit in fams:
-            shown.add(fam)
-            if hit and fam.active:
-                tickable.append(fam)
-            for kid in kids:
-                shown.add(kid)
-                if kid.active:
-                    tickable.append(kid)
-    hidden = sum(1 for row in doomed if row not in shown)
+        # -- the footer ----------------------------------------------------
+        # It used to report ONLY "will be renamed", so a loaded list with no rule set
+        # yet read as a flat 0 and your own selection was invisible -- the same blind
+        # spot that let a search-filtered Select all leave rows ticked off screen and
+        # rename them. Now it says what is ticked, what that produces, and how much
+        # of it the search box is hiding.
+        shown = set()
+        tickable = []
+        for _cat, fams in filtered_groups():
+            for fam, kids, hit in fams:
+                shown.add(fam)
+                if hit and fam.active:
+                    tickable.append(fam)
+                for kid in kids:
+                    shown.add(kid)
+                    if kid.active:
+                        tickable.append(kid)
+        hidden = sum(1 for row in doomed if row not in shown)
 
-    if rules.empty:
-        outcome = u"no rule set yet"
-        state["why"] = u"no rule"
-    elif sel_fam or sel_typ:
-        outcome = u"{} will be renamed".format(_fam_typ(sel_fam, sel_typ))
-        state["why"] = u""
-    elif n_fam or n_typ:
-        outcome = u"every changed row is blocked or unticked: nothing to write"
-        state["why"] = u"blocked"
-    else:
-        outcome = u"the rules change none of them"
-        state["why"] = u"unchanged"
-    lblCount.Text = outcome
-    # No warning glyph: DM Sans has no U+26A0 and the fallback can land on the
-    # colour emoji face. The warn colour is the marker.
-    # Only the search can hide a row that is still going to be renamed: the
-    # half boxes untick what they hide, so it stops being pending.
-    narrowed = not (bool(chkModel.IsChecked) and bool(chkAnno.IsChecked))
-    lblWarn.Text = (u"{} of those rows {} hidden by the search -- clear it to see"
-                    u" them".format(hidden, u"is" if hidden == 1 else u"are")
-                    if hidden else u"")
+        if rules.empty:
+            outcome = u"no rule set yet"
+            state["why"] = u"no rule"
+        elif sel_fam or sel_typ:
+            outcome = u"{} will be renamed".format(_fam_typ(sel_fam, sel_typ))
+            state["why"] = u""
+        elif n_fam or n_typ:
+            outcome = u"every changed row is blocked or unticked: nothing to write"
+            state["why"] = u"blocked"
+        else:
+            outcome = u"the rules change none of them"
+            state["why"] = u"unchanged"
+        lblCount.Text = outcome
+        # No warning glyph: DM Sans has no U+26A0 and the fallback can land on the
+        # colour emoji face. The warn colour is the marker.
+        # Only the search can hide a row that is still going to be renamed: the
+        # half boxes untick what they hide, so it stops being pending.
+        narrowed = not (bool(chkModel.IsChecked) and bool(chkAnno.IsChecked))
+        lblWarn.Text = (u"{} of those rows {} hidden by the search -- clear it to see"
+                        u" them".format(hidden, u"is" if hidden == 1 else u"are")
+                        if hidden else u"")
 
-    # The button names the universe it is about to hit, because with something
-    # typed in the search box that universe is NOT the whole list.
-    all_on = bool(tickable) and all(r.picked for r in tickable)
-    if (txtFilter.Text or u"").strip() or narrowed:
-        btnAll.Content = u"Clear shown" if all_on else u"Select all shown"
-    else:
-        btnAll.Content = u"Clear all" if all_on else u"Select all"
+        # The button names the universe it is about to hit, because with something
+        # typed in the search box that universe is NOT the whole list.
+        all_on = bool(tickable) and all(r.picked for r in tickable)
+        if (txtFilter.Text or u"").strip() or narrowed:
+            btnAll.Content = u"Clear shown" if all_on else u"Select all shown"
+        else:
+            btnAll.Content = u"Clear all" if all_on else u"Select all"
 
-    state["ready"] = sel_fam + sel_typ
+        state["ready"] = sel_fam + sel_typ
 
 
-def filtered_groups():
-    """[(category, [(family, its types, did the family match), ...]), ...] for
+    def filtered_groups():
+        """[(category, [(family, its types, did the family match), ...]), ...] for
     everything the search box lets through, expansion aside.
 
     ONE place decides what the search hides, so the grid, the Select all button
@@ -1383,217 +1385,217 @@ def filtered_groups():
     disagreeing is what let Select all leave rows ticked outside the search,
     which the run then renamed anyway, since the write always walked all_rows.
     """
-    do_typ = bool(chkTyp.IsChecked)
-    q = (txtFilter.Text or u"").strip().lower()
-    show_model = bool(chkModel.IsChecked)
-    show_anno = bool(chkAnno.IsChecked)
-    out = []
-    for cat in cat_rows:
-        # Model / annotation is a second way of narrowing the SAME list, so it
-        # rides here with the search instead of becoming an axis of its own.
-        if not (show_anno if cat.annotation else show_model):
-            continue
-        # Matching the category name brings the whole group in, untouched.
-        cat_hit = bool(q) and q in cat.Current.lower()
-        fams = []
-        for fam in cat.children:
-            kids = fam.children if do_typ else []
-            hit = True
-            if q and not cat_hit:
-                hit = q in fam.Current.lower() or q in fam.New.lower()
-                if not hit:
-                    # The family did not match, but some of its types did: it is
-                    # listed as their header and nothing more. Select all skips
-                    # it, because ticking a family cascades to ALL its types --
-                    # the ones the search is hiding included.
-                    kids = [k for k in kids
-                            if q in k.Current.lower() or q in k.New.lower()]
-                    if not kids:
-                        continue
-            fams.append((fam, kids, hit))
-        if fams:
-            out.append((cat, fams))
-    return out
+        do_typ = bool(chkTyp.IsChecked)
+        q = (txtFilter.Text or u"").strip().lower()
+        show_model = bool(chkModel.IsChecked)
+        show_anno = bool(chkAnno.IsChecked)
+        out = []
+        for cat in cat_rows:
+            # Model / annotation is a second way of narrowing the SAME list, so it
+            # rides here with the search instead of becoming an axis of its own.
+            if not (show_anno if cat.annotation else show_model):
+                continue
+            # Matching the category name brings the whole group in, untouched.
+            cat_hit = bool(q) and q in cat.Current.lower()
+            fams = []
+            for fam in cat.children:
+                kids = fam.children if do_typ else []
+                hit = True
+                if q and not cat_hit:
+                    hit = q in fam.Current.lower() or q in fam.New.lower()
+                    if not hit:
+                        # The family did not match, but some of its types did: it is
+                        # listed as their header and nothing more. Select all skips
+                        # it, because ticking a family cascades to ALL its types --
+                        # the ones the search is hiding included.
+                        kids = [k for k in kids
+                                if q in k.Current.lower() or q in k.New.lower()]
+                        if not kids:
+                            continue
+                fams.append((fam, kids, hit))
+            if fams:
+                out.append((cat, fams))
+        return out
 
 
-def visible_rows():
-    """The flat list the grid shows. Categories always; families and types as
+    def visible_rows():
+        """The flat list the grid shows. Categories always; families and types as
     their parent is opened -- or straight away while the search box has
     something in it, because leaving a match folded out of sight would be the
     same lie the footer warning exists to prevent."""
-    if not chkFam.IsChecked and not chkTyp.IsChecked:
-        return []
-    searching = bool((txtFilter.Text or u"").strip())
-    out = []
-    for cat, fams in filtered_groups():
-        out.append(cat)
-        if not (cat.expanded or searching):
-            continue
-        for fam, kids, _hit in fams:
-            out.append(fam)
-            if kids and (fam.expanded or searching):
-                out.extend(kids)
-    return out
-
-
-def tickable_rows():
-    """What Select all is allowed to touch: the rows on screen that are in scope.
-    A folded family or type counts -- it is one chevron away, not hidden."""
-    out = []
-    for _cat, fams in filtered_groups():
-        for fam, kids, hit in fams:
-            if hit and fam.active:
+        if not chkFam.IsChecked and not chkTyp.IsChecked:
+            return []
+        searching = bool((txtFilter.Text or u"").strip())
+        out = []
+        for cat, fams in filtered_groups():
+            out.append(cat)
+            if not (cat.expanded or searching):
+                continue
+            for fam, kids, _hit in fams:
                 out.append(fam)
-            for kid in kids:
-                if kid.active:
-                    out.append(kid)
-    return out
+                if kids and (fam.expanded or searching):
+                    out.extend(kids)
+        return out
 
 
-# The grid is bound to THIS collection for the life of the window. Handing the
-# DataGrid a new one on every rebind makes it drop its scroll position, which on
-# a tree you fold and unfold all day means one chevron click sends you back to
-# the top of the document.
-_VIS = ObservableCollection[object]()
-grid.ItemsSource = _VIS
+    def tickable_rows():
+        """What Select all is allowed to touch: the rows on screen that are in scope.
+    A folded family or type counts -- it is one chevron away, not hidden."""
+        out = []
+        for _cat, fams in filtered_groups():
+            for fam, kids, hit in fams:
+                if hit and fam.active:
+                    out.append(fam)
+                for kid in kids:
+                    if kid.active:
+                        out.append(kid)
+        return out
 
 
-def rebind():
-    """Bring the bound collection to what visible_rows() says, IN PLACE.
+    # The grid is bound to THIS collection for the life of the window. Handing the
+    # DataGrid a new one on every rebind makes it drop its scroll position, which on
+    # a tree you fold and unfold all day means one chevron click sends you back to
+    # the top of the document.
+    _VIS = ObservableCollection[object]()
+    grid.ItemsSource = _VIS
+
+
+    def rebind():
+        """Bring the bound collection to what visible_rows() says, IN PLACE.
 
     Rows never change their relative order (category, then family, then type,
     each sorted once) -- they only appear or disappear -- so walking the wanted
     list once and inserting what is missing is enough. No move, no reset, and
     the ScrollViewer stays where the user left it."""
-    wanted = visible_rows()
-    keep = set(wanted)
-    for idx in range(_VIS.Count - 1, -1, -1):
-        if _VIS[idx] not in keep:
-            _VIS.RemoveAt(idx)
-    for pos, row in enumerate(wanted):
-        if pos >= _VIS.Count or _VIS[pos] is not row:
-            _VIS.Insert(pos, row)
+        wanted = visible_rows()
+        keep = set(wanted)
+        for idx in range(_VIS.Count - 1, -1, -1):
+            if _VIS[idx] not in keep:
+                _VIS.RemoveAt(idx)
+        for pos, row in enumerate(wanted):
+            if pos >= _VIS.Count or _VIS[pos] is not row:
+                _VIS.Insert(pos, row)
 
 
-def refresh():
-    recompute()
-    rebind()
-
-
-# Typing recomputes a few thousand strings, so it runs on a short debounce: the
-# preview still reads as live, but a fast typist does not queue one full pass
-# per keystroke. Note it does NOT rebind the grid -- INotifyPropertyChanged
-# repaints the rows in place, which is what keeps the scroll position and the
-# ticks where they were while you refine the tag.
-timer = DispatcherTimer()
-timer.Interval = TimeSpan.FromMilliseconds(180)
-
-
-def on_tick(s, e):
-    timer.Stop()
-    # A full refresh, not just a recount: the search box rides this same
-    # debounce, and the proposed names it matches against have just moved.
-    # Rebinding is cheap now that it updates the collection in place.
-    refresh()
-
-
-def on_tag_typed(s, e):
-    timer.Stop()
-    timer.Start()
-
-
-def on_scope_changed(s, e):
-    # A tick box or a case option changes WHICH rows are listed, so this one
-    # goes through the full refresh.
-    refresh()
-    # Switching Families / Types on or off changes which own-ticks a family or a
-    # category adds up (its dash), so repaint the boxes that are on screen.
-    for row in visible_rows():
-        row._raise("Checked")
-
-
-def on_filter(s, e):
-    # Same debounce as the tag box: one keystroke re-runs the rule over every
-    # name in the document, and a fast typist should not queue one pass each.
-    timer.Stop()
-    timer.Start()
-
-
-def on_grid_click(s, e):
-    src = e.OriginalSource
-    if getattr(src, "Tag", None) != "chev":
-        return
-    row = getattr(src, "DataContext", None)
-    if isinstance(row, Row):
-        row.toggle()
+    def refresh():
+        recompute()
         rebind()
 
 
-def on_dbl(s, e):
-    row = grid.SelectedItem
-    if isinstance(row, Row) and row.children:
-        row.toggle()
-        rebind()
+    # Typing recomputes a few thousand strings, so it runs on a short debounce: the
+    # preview still reads as live, but a fast typist does not queue one full pass
+    # per keystroke. Note it does NOT rebind the grid -- INotifyPropertyChanged
+    # repaints the rows in place, which is what keeps the scroll position and the
+    # ticks where they were while you refine the tag.
+    timer = DispatcherTimer()
+    timer.Interval = TimeSpan.FromMilliseconds(180)
 
 
-def on_row_ticked(s, e):
-    # CheckBox.ClickEvent, not Checked/Unchecked: those also fire while WPF
-    # realises virtualised rows, which would recount on every scroll. Unticking
-    # a row can clear a clash (it stops competing for the name), so this is a
-    # recompute, not just a counter bump -- but NOT a rebind, or the grid would
-    # jump under the click that caused it.
-    recompute()
+    def on_tick(s, e):
+        timer.Stop()
+        # A full refresh, not just a recount: the search box rides this same
+        # debounce, and the proposed names it matches against have just moved.
+        # Rebinding is cheap now that it updates the collection in place.
+        refresh()
 
 
-# What each half was the last time we looked, so one click cascades its own
-# box and leaves the other one alone.
-_HALF = {False: True, True: True}
+    def on_tag_typed(s, e):
+        timer.Stop()
+        timer.Start()
 
 
-def on_half(s, e):
-    """Model / annotation is SCOPE, not a second search box. A branch that
+    def on_scope_changed(s, e):
+        # A tick box or a case option changes WHICH rows are listed, so this one
+        # goes through the full refresh.
+        refresh()
+        # Switching Families / Types on or off changes which own-ticks a family or a
+        # category adds up (its dash), so repaint the boxes that are on screen.
+        for row in visible_rows():
+            row._raise("Checked")
+
+
+    def on_filter(s, e):
+        # Same debounce as the tag box: one keystroke re-runs the rule over every
+        # name in the document, and a fast typist should not queue one pass each.
+        timer.Stop()
+        timer.Start()
+
+
+    def on_grid_click(s, e):
+        src = e.OriginalSource
+        if getattr(src, "Tag", None) != "chev":
+            return
+        row = getattr(src, "DataContext", None)
+        if isinstance(row, Row):
+            row.toggle()
+            rebind()
+
+
+    def on_dbl(s, e):
+        row = grid.SelectedItem
+        if isinstance(row, Row) and row.children:
+            row.toggle()
+            rebind()
+
+
+    def on_row_ticked(s, e):
+        # CheckBox.ClickEvent, not Checked/Unchecked: those also fire while WPF
+        # realises virtualised rows, which would recount on every scroll. Unticking
+        # a row can clear a clash (it stops competing for the name), so this is a
+        # recompute, not just a counter bump -- but NOT a rebind, or the grid would
+        # jump under the click that caused it.
+        recompute()
+
+
+    # What each half was the last time we looked, so one click cascades its own
+    # box and leaves the other one alone.
+    _HALF = {False: True, True: True}
+
+
+    def on_half(s, e):
+        """Model / annotation is SCOPE, not a second search box. A branch that
     disappears while its rows stay ticked is exactly the lie that renamed
     families nobody could see, so the box carries its tick down into its
     categories -- the same cascade as clicking each one by hand."""
-    for box, anno in ((chkModel, False), (chkAnno, True)):
-        want = bool(box.IsChecked)
-        if _HALF[anno] == want:
-            continue
-        _HALF[anno] = want
+        for box, anno in ((chkModel, False), (chkAnno, True)):
+            want = bool(box.IsChecked)
+            if _HALF[anno] == want:
+                continue
+            _HALF[anno] = want
+            _QUIET["on"] = True
+            try:
+                for cat in cat_rows:
+                    if cat.annotation == anno:
+                        cat.Checked = want
+            finally:
+                _QUIET["on"] = False
+        for row in visible_rows():
+            row._raise("Checked")
+        refresh()
+
+
+    def on_all(s, e):
+        rows = tickable_rows()
+        turn_on = not (rows and all(r.picked for r in rows))
         _QUIET["on"] = True
         try:
-            for cat in cat_rows:
-                if cat.annotation == anno:
-                    cat.Checked = want
+            for row in rows:
+                row.Checked = turn_on
         finally:
             _QUIET["on"] = False
-    for row in visible_rows():
-        row._raise("Checked")
-    refresh()
+        # One repaint for everything the grid can be showing, now that the model has
+        # settled. Rows further down are read fresh when scrolling realises them.
+        for row in visible_rows():
+            row._raise("Checked")
+        refresh()
 
 
-def on_all(s, e):
-    rows = tickable_rows()
-    turn_on = not (rows and all(r.picked for r in rows))
-    _QUIET["on"] = True
-    try:
-        for row in rows:
-            row.Checked = turn_on
-    finally:
-        _QUIET["on"] = False
-    # One repaint for everything the grid can be showing, now that the model has
-    # settled. Rows further down are read fresh when scrolling realises them.
-    for row in visible_rows():
-        row._raise("Checked")
-    refresh()
-
-
-# --------------------------------------------------------------------------
-# The review: shown BEFORE anything is written. A tick left on from the last run
-# once renamed 48 families of a template with no question asked; the full list
-# of what is about to happen, with what will not, is the question.
-# --------------------------------------------------------------------------
-_REVIEW_BODY = """
+    # --------------------------------------------------------------------------
+    # The review: shown BEFORE anything is written. A tick left on from the last run
+    # once renamed 48 families of a template with no question asked; the full list
+    # of what is about to happen, with what will not, is the question.
+    # --------------------------------------------------------------------------
+    _REVIEW_BODY = """
   <Grid>
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
@@ -1639,7 +1641,7 @@ _REVIEW_BODY = """
   </Grid>
 """
 
-_REVIEW_FOOTER = """
+    _REVIEW_FOOTER = """
   <Grid>
     <Grid.ColumnDefinitions>
       <ColumnDefinition Width="*"/>
@@ -1656,438 +1658,439 @@ _REVIEW_FOOTER = """
   </Grid>
 """
 
-OK_BRUSH = _brush(ui.STATUS_OK)
-WARN_BRUSH = _brush(ui.STATUS_WARN)
+    OK_BRUSH = _brush(ui.STATUS_OK)
+    WARN_BRUSH = _brush(ui.STATUS_WARN)
 
 
-class ReviewRow(object):
-    """One line of the review. Plain attributes would not bind: PascalCase."""
+    class ReviewRow(object):
+        """One line of the review. Plain attributes would not bind: PascalCase."""
 
-    def __init__(self, row, result, brush):
-        self._row = row
-        self._result = result
-        self._brush = brush
+        def __init__(self, row, result, brush):
+            self._row = row
+            self._result = result
+            self._brush = brush
 
-    @property
-    def Kind(self):
-        return self._row.kind
+        @property
+        def Kind(self):
+            return self._row.kind
 
-    @property
-    def Category(self):
-        return self._row.Category
+        @property
+        def Category(self):
+            return self._row.Category
 
-    @property
-    def OldName(self):
-        return self._row.Current
+        @property
+        def OldName(self):
+            return self._row.Current
 
-    @property
-    def OldBrush(self):
-        return DIM
+        @property
+        def OldBrush(self):
+            return DIM
 
-    @property
-    def NewName(self):
-        return self._row.New
+        @property
+        def NewName(self):
+            return self._row.New
 
-    @property
-    def NewWeight(self):
-        return FontWeights.SemiBold if self._brush is OK_BRUSH else FontWeights.Normal
+        @property
+        def NewWeight(self):
+            return FontWeights.SemiBold if self._brush is OK_BRUSH else FontWeights.Normal
 
-    @property
-    def Result(self):
-        return self._result
+        @property
+        def Result(self):
+            return self._result
 
-    @property
-    def ResultBrush(self):
-        return self._brush
+        @property
+        def ResultBrush(self):
+            return self._brush
 
 
-def checkout_problem(row, ctx):
-    """Why Revit would refuse to touch this row for sure: another user has its
+    def checkout_problem(row, ctx):
+        """Why Revit would refuse to touch this row for sure: another user has its
     FAMILY checked out. Asked once per family element (a type answers with its
     family's result), never per type. u"" when it is free, not workshared, or
     Revit would not say (an unanswered question is not a prediction of failure)."""
-    fam = row if row.is_family else row.parent
-    if fam is None or fam.element is None or ctx["off"] or not doc.IsWorkshared:
-        return u""
-    if fam in ctx["seen"]:
-        return ctx["seen"][fam]
-    answer = u""
-    try:
-        owner = clr.Reference[str]()
-        status = DB.WorksharingUtils.GetCheckoutStatus(doc, fam.element.Id, owner)
-        if status == DB.CheckoutStatus.OwnedByOtherUser:
-            answer = u"checked out by {}".format(owner.Value or u"another user")
-    except Exception:
-        ctx["off"] = True
-    ctx["seen"][fam] = answer
-    return answer
+        fam = row if row.is_family else row.parent
+        if fam is None or fam.element is None or ctx["off"] or not doc.IsWorkshared:
+            return u""
+        if fam in ctx["seen"]:
+            return ctx["seen"][fam]
+        answer = u""
+        try:
+            owner = clr.Reference[str]()
+            status = DB.WorksharingUtils.GetCheckoutStatus(doc, fam.element.Id, owner)
+            if status == DB.CheckoutStatus.OwnedByOtherUser:
+                answer = u"checked out by {}".format(owner.Value or u"another user")
+        except Exception:
+            ctx["off"] = True
+        ctx["seen"][fam] = answer
+        return answer
 
 
-def current_plan():
-    """(rows to write, families first; rows ticked and changed but blocked; rows
+    def current_plan():
+        """(rows to write, families first; rows ticked and changed but blocked; rows
     that are bound to fail, as [(row, why)]). The last group is NOT in the first:
     a row we know will fail is not sent to Revit."""
-    todo = [r for r in all_rows if r.Changed and r.picked and not r.Status]
-    held = [r for r in all_rows if r.Changed and r.picked and r.Status]
-    ordered = ([r for r in todo if r.is_family] +
-               [r for r in todo if not r.is_family])
-    ctx = {"off": False, "seen": {}}
-    writable = []
-    failing = []
-    for r in ordered:
-        why = checkout_problem(r, ctx)
-        if why:
-            failing.append((r, why))
+        todo = [r for r in all_rows if r.Changed and r.picked and not r.Status]
+        held = [r for r in all_rows if r.Changed and r.picked and r.Status]
+        ordered = ([r for r in todo if r.is_family] +
+                   [r for r in todo if not r.is_family])
+        ctx = {"off": False, "seen": {}}
+        writable = []
+        failing = []
+        for r in ordered:
+            why = checkout_problem(r, ctx)
+            if why:
+                failing.append((r, why))
+            else:
+                writable.append(r)
+        return writable, held, failing
+
+
+    def _plural(n, one, many):
+        return u"{} {}".format(n, one if n == 1 else many)
+
+
+    def _confirm_label(n_fam, n_typ):
+        bits = []
+        if n_fam:
+            bits.append(_plural(n_fam, u"family", u"families"))
+        if n_typ:
+            bits.append(_plural(n_typ, u"type", u"types"))
+        return u"Confirm: rename " + u" and ".join(bits)
+
+
+    def _csv_field(value):
+        text = u"" if value is None else u"{}".format(value)
+        for bad in (u",", u'"', u"\n", u"\r"):
+            if bad in text:
+                return u'"' + text.replace(u'"', u'""') + u'"'
+        return text
+
+
+    def review_changes():
+        """Show what is about to be written. True only on Confirm."""
+        ordered, held, doomed = current_plan()
+        # What the user is shown is exactly what gets written: the apply step reads
+        # this, it does not plan again.
+        state["plan"] = (ordered, held, doomed)
+        rows = []
+        n_fam = sum(1 for r in ordered if r.is_family)
+        n_typ = len(ordered) - n_fam
+        n_fail = len(doomed)
+        for r in ordered:
+            rows.append(ReviewRow(r, u"Will rename", OK_BRUSH))
+        for r in held:
+            rows.append(ReviewRow(r, u"Will not rename - {}".format(r.Status),
+                                  WARN_BRUSH))
+        for r, why in doomed:
+            rows.append(ReviewRow(r, u"Will fail - {}".format(why), BAD))
+
+        if ordered:
+            parts = [u"You are about to rename {} and {}.".format(
+                _plural(n_fam, u"family", u"families"),
+                _plural(n_typ, u"type", u"types"))]
         else:
-            writable.append(r)
-    return writable, held, failing
+            parts = [u"Nothing can be renamed."]
+        if held:
+            parts.append(u"{} will not be renamed (name clash or invalid name)."
+                         .format(len(held)))
+        if n_fail:
+            parts.append(u"{} will fail and are left out.".format(n_fail))
+
+        rv = ui.parse("Rename Families", "Review before renaming",
+                      _REVIEW_BODY, _REVIEW_FOOTER, width=1040, height=660,
+                      context=doc.Title)
+        try:
+            rv.Owner = win
+        except Exception:
+            pass
+        rv.FindName("lblSummary").Text = u"  ".join(parts)
+        lblNote = rv.FindName("lblNote")
+        lblNote.Text = u"Nothing has been written yet."
+        btnBack = rv.FindName("btnBack")
+        btnGo = rv.FindName("btnGo")
+        btnBack.Content = u"< Back to edit"
+        if ordered:
+            btnGo.Content = _confirm_label(n_fam, n_typ)
+        else:
+            # Nothing left to write: the button must not say "Confirm: rename " and
+            # stop mid-sentence, nor be clickable.
+            btnGo.Content = u"Nothing to confirm"
+            btnGo.IsEnabled = False
+
+        items = ObservableCollection[object]()
+        for item in rows:
+            items.Add(item)
+        rv.FindName("grid").ItemsSource = items
+
+        answer = {"go": False}
+
+        def on_go(sender, args):
+            answer["go"] = True
+            rv.Close()
+
+        def on_csv(sender, args):
+            # Microsoft.Win32, not WinForms: the netcore engine of Revit 2025+ does
+            # not carry System.Windows.Forms.
+            from Microsoft.Win32 import SaveFileDialog
+            dlg = SaveFileDialog()
+            dlg.Filter = "CSV file (*.csv)|*.csv|All files (*.*)|*.*"
+            dlg.DefaultExt = ".csv"
+            dlg.AddExtension = True
+            dlg.FileName = "Rename Families - review"
+            if not dlg.ShowDialog():
+                return
+            lines = [u",".join(_csv_field(h) for h in
+                               (u"Kind", u"Category", u"Old name", u"New name",
+                                u"Result"))]
+            for it in rows:
+                lines.append(u",".join(_csv_field(v) for v in
+                                       (it.Kind, it.Category, it.OldName,
+                                        it.NewName, it.Result)))
+            # BOM + CRLF so Excel opens it with the accents and the rows right.
+            blob = (unichr(0xFEFF) + u"\r\n".join(lines) + u"\r\n").encode("utf-8")
+            handle = open(dlg.FileName, "wb")
+            try:
+                handle.write(blob)
+            finally:
+                handle.close()
+            lblNote.Text = u"Exported {} rows to {}".format(
+                len(rows), os.path.basename(dlg.FileName))
+
+        btnGo.Click += on_go
+        btnBack.Click += lambda sender, args: rv.Close()
+        rv.FindName("btnCsv").Click += on_csv
+        rv.ShowDialog()
+        return answer["go"]
 
 
-def _plural(n, one, many):
-    return u"{} {}".format(n, one if n == 1 else many)
+    NOTHING_TO_RENAME = {
+        u"no rule": u"No rule is set. Fill in at least one on the left: text to "
+                    u"remove or replace, a prefix or suffix, a trim, or a case change.",
+        u"blocked": u"Every name the rules change is blocked (the red notes say why) "
+                    u"or unticked, so there is nothing to write.",
+        u"unchanged": u"The rules do not change any of the names that are ticked.",
+    }
 
 
-def _confirm_label(n_fam, n_typ):
-    bits = []
-    if n_fam:
-        bits.append(_plural(n_fam, u"family", u"families"))
-    if n_typ:
-        bits.append(_plural(n_typ, u"type", u"types"))
-    return u"Confirm: rename " + u" and ".join(bits)
-
-
-def _csv_field(value):
-    text = u"" if value is None else u"{}".format(value)
-    for bad in (u",", u'"', u"\n", u"\r"):
-        if bad in text:
-            return u'"' + text.replace(u'"', u'""') + u'"'
-    return text
-
-
-def review_changes():
-    """Show what is about to be written. True only on Confirm."""
-    ordered, held, doomed = current_plan()
-    # What the user is shown is exactly what gets written: the apply step reads
-    # this, it does not plan again.
-    state["plan"] = (ordered, held, doomed)
-    rows = []
-    n_fam = sum(1 for r in ordered if r.is_family)
-    n_typ = len(ordered) - n_fam
-    n_fail = len(doomed)
-    for r in ordered:
-        rows.append(ReviewRow(r, u"Will rename", OK_BRUSH))
-    for r in held:
-        rows.append(ReviewRow(r, u"Will not rename - {}".format(r.Status),
-                              WARN_BRUSH))
-    for r, why in doomed:
-        rows.append(ReviewRow(r, u"Will fail - {}".format(why), BAD))
-
-    if ordered:
-        parts = [u"You are about to rename {} and {}.".format(
-            _plural(n_fam, u"family", u"families"),
-            _plural(n_typ, u"type", u"types"))]
-    else:
-        parts = [u"Nothing can be renamed."]
-    if held:
-        parts.append(u"{} will not be renamed (name clash or invalid name)."
-                     .format(len(held)))
-    if n_fail:
-        parts.append(u"{} will fail and are left out.".format(n_fail))
-
-    rv = ui.parse("Rename Families", "Review before renaming",
-                  _REVIEW_BODY, _REVIEW_FOOTER, width=1040, height=660,
-                  context=doc.Title)
-    try:
-        rv.Owner = win
-    except Exception:
-        pass
-    rv.FindName("lblSummary").Text = u"  ".join(parts)
-    lblNote = rv.FindName("lblNote")
-    lblNote.Text = u"Nothing has been written yet."
-    btnBack = rv.FindName("btnBack")
-    btnGo = rv.FindName("btnGo")
-    btnBack.Content = u"< Back to edit"
-    if ordered:
-        btnGo.Content = _confirm_label(n_fam, n_typ)
-    else:
-        # Nothing left to write: the button must not say "Confirm: rename " and
-        # stop mid-sentence, nor be clickable.
-        btnGo.Content = u"Nothing to confirm"
-        btnGo.IsEnabled = False
-
-    items = ObservableCollection[object]()
-    for item in rows:
-        items.Add(item)
-    rv.FindName("grid").ItemsSource = items
-
-    answer = {"go": False}
-
-    def on_go(sender, args):
-        answer["go"] = True
-        rv.Close()
-
-    def on_csv(sender, args):
-        # Microsoft.Win32, not WinForms: the netcore engine of Revit 2025+ does
-        # not carry System.Windows.Forms.
-        from Microsoft.Win32 import SaveFileDialog
-        dlg = SaveFileDialog()
-        dlg.Filter = "CSV file (*.csv)|*.csv|All files (*.*)|*.*"
-        dlg.DefaultExt = ".csv"
-        dlg.AddExtension = True
-        dlg.FileName = "Rename Families - review"
-        if not dlg.ShowDialog():
+    def on_ok(s, e):
+        # The rules may have been typed less than the debounce ago: settle them
+        # first, or the review below would show names from the previous keystroke.
+        timer.Stop()
+        refresh()
+        if not state["ready"]:
+            # Silence here read as a dead button. Say why there is nothing to do.
+            ui.alert(NOTHING_TO_RENAME.get(state["why"], NOTHING_TO_RENAME[u"unchanged"]),
+                     title="Nothing to rename", context=doc.Title)
             return
-        lines = [u",".join(_csv_field(h) for h in
-                           (u"Kind", u"Category", u"Old name", u"New name",
-                            u"Result"))]
-        for it in rows:
-            lines.append(u",".join(_csv_field(v) for v in
-                                   (it.Kind, it.Category, it.OldName,
-                                    it.NewName, it.Result)))
-        # BOM + CRLF so Excel opens it with the accents and the rows right.
-        blob = (unichr(0xFEFF) + u"\r\n".join(lines) + u"\r\n").encode("utf-8")
-        handle = open(dlg.FileName, "wb")
-        try:
-            handle.write(blob)
-        finally:
-            handle.close()
-        lblNote.Text = u"Exported {} rows to {}".format(
-            len(rows), os.path.basename(dlg.FileName))
-
-    btnGo.Click += on_go
-    btnBack.Click += lambda sender, args: rv.Close()
-    rv.FindName("btnCsv").Click += on_csv
-    rv.ShowDialog()
-    return answer["go"]
+        # Nothing is written from here. The review comes first, on top of this
+        # window, so "Back to edit" is just closing it: the rules are still in place.
+        if review_changes():
+            state["go"] = True
+            win.Close()
 
 
-NOTHING_TO_RENAME = {
-    u"no rule": u"No rule is set. Fill in at least one on the left: text to "
-                u"remove or replace, a prefix or suffix, a trim, or a case change.",
-    u"blocked": u"Every name the rules change is blocked (the red notes say why) "
-                u"or unticked, so there is nothing to write.",
-    u"unchanged": u"The rules do not change any of the names that are ticked.",
-}
+    timer.Tick += on_tick
+    for _box in (txtTag, txtFind, txtRepl, txtPre, txtSuf):
+        _box.TextChanged += on_tag_typed
+    # Dragging a slider fires one event per tick crossed, so they ride the same
+    # debounce as typing rather than recomputing the whole document per pixel.
+    sldStart.ValueChanged += on_tag_typed
+    sldEnd.ValueChanged += on_tag_typed
+    txtFilter.TextChanged += on_filter
+    chkFam.Click += on_scope_changed
+    chkTyp.Click += on_scope_changed
+    chkModel.Click += on_half
+    chkAnno.Click += on_half
+    for rb in (rbNone, rbTitle, rbUpper):
+        rb.Click += on_scope_changed
+    grid.AddHandler(UIElement.MouseLeftButtonUpEvent,
+                    MouseButtonEventHandler(on_grid_click), True)
+    grid.AddHandler(_CheckBox.ClickEvent, RoutedEventHandler(on_row_ticked), True)
+    grid.MouseDoubleClick += on_dbl
+    btnAll.Click += on_all
+    btnOK.Click += on_ok
+    btnCancel.Click += lambda s, e: win.Close()
 
-
-def on_ok(s, e):
-    # The rules may have been typed less than the debounce ago: settle them
-    # first, or the review below would show names from the previous keystroke.
-    timer.Stop()
     refresh()
-    if not state["ready"]:
-        # Silence here read as a dead button. Say why there is nothing to do.
-        ui.alert(NOTHING_TO_RENAME.get(state["why"], NOTHING_TO_RENAME[u"unchanged"]),
-                 title="Nothing to rename", context=doc.Title)
-        return
-    # Nothing is written from here. The review comes first, on top of this
-    # window, so "Back to edit" is just closing it: the rules are still in place.
-    if review_changes():
-        state["go"] = True
-        win.Close()
+    txtTag.Focus()
+    win.ShowDialog()
 
+    if not state["go"]:
+        script.exit()
 
-timer.Tick += on_tick
-for _box in (txtTag, txtFind, txtRepl, txtPre, txtSuf):
-    _box.TextChanged += on_tag_typed
-# Dragging a slider fires one event per tick crossed, so they ride the same
-# debounce as typing rather than recomputing the whole document per pixel.
-sldStart.ValueChanged += on_tag_typed
-sldEnd.ValueChanged += on_tag_typed
-txtFilter.TextChanged += on_filter
-chkFam.Click += on_scope_changed
-chkTyp.Click += on_scope_changed
-chkModel.Click += on_half
-chkAnno.Click += on_half
-for rb in (rbNone, rbTitle, rbUpper):
-    rb.Click += on_scope_changed
-grid.AddHandler(UIElement.MouseLeftButtonUpEvent,
-                MouseButtonEventHandler(on_grid_click), True)
-grid.AddHandler(_CheckBox.ClickEvent, RoutedEventHandler(on_row_ticked), True)
-grid.MouseDoubleClick += on_dbl
-btnAll.Click += on_all
-btnOK.Click += on_ok
-btnCancel.Click += lambda s, e: win.Close()
+    # --------------------------------------------------------------------------
+    # Apply. Families first, then types, so the report reads top-down. Each row is
+    # guarded on its own: one rejection from the API must not take the whole run
+    # down with it.
+    #
+    # The parking pass is what makes an A->B / B->A swap survive. The clash check
+    # works on the net result and rightly calls a swap legal, but the writes happen
+    # one at a time against the LIVE document: renaming A to B while B is still
+    # called B trips Revit's duplicate-name check. So every row SITTING ON a name
+    # another row wants is first parked on a throwaway name. Parking the rows that
+    # WANT a taken name instead is not enough: it fixes a two-row swap but still
+    # fails a chain (A->B, B->C, C->Z), where the blocker has to move out of the
+    # way regardless of who asked for it.
+    # --------------------------------------------------------------------------
+    ordered, blocked, doomed = state["plan"]
 
-refresh()
-txtTag.Focus()
-win.ShowDialog()
+    renamed = 0
+    failed = 0
+    for row, why in doomed:
+        # Known to fail, so it was never sent to Revit.
+        row.set_status(u"FAILED - {} (not attempted)".format(why))
+        failed += 1
 
-if not state["go"]:
-    script.exit()
+    # Not `with revit.Transaction(...)`: its __exit__ swallows a commit that Revit
+    # refuses, and the rows had already been marked "Renamed" by then. Here the
+    # commit status is read, because a rolled-back run (a family another user has
+    # checked out, a failure Revit cannot resolve) changed NOTHING in the model.
+    txn = DB.Transaction(doc, "Rename Families")
+    rolled_back = u""
+    try:
+        txn.Start()
+        live, unreadable = live_names(ordered)
+        todo = []
+        for row in ordered:
+            if row.scope in unreadable:
+                row.set_status(u"FAILED - could not read the existing names here, "
+                               u"left untouched")
+                failed += 1
+            else:
+                todo.append(row)
 
-# --------------------------------------------------------------------------
-# Apply. Families first, then types, so the report reads top-down. Each row is
-# guarded on its own: one rejection from the API must not take the whole run
-# down with it.
-#
-# The parking pass is what makes an A->B / B->A swap survive. The clash check
-# works on the net result and rightly calls a swap legal, but the writes happen
-# one at a time against the LIVE document: renaming A to B while B is still
-# called B trips Revit's duplicate-name check. So every row SITTING ON a name
-# another row wants is first parked on a throwaway name. Parking the rows that
-# WANT a taken name instead is not enough: it fixes a two-row swap but still
-# fails a chain (A->B, B->C, C->Z), where the blocker has to move out of the
-# way regardless of who asked for it.
-# --------------------------------------------------------------------------
-ordered, blocked, doomed = state["plan"]
+        # Names are keyed lower-cased (Revit ignores case): {scope: {key: [rows that
+        # want it]}}, and {scope: {keys held right now}}.
+        claimed = {}
+        for row in todo:
+            claimed.setdefault(row.scope, {}).setdefault(_key(row.New), []).append(row)
+        taken_now = {}
+        for row in all_rows:
+            taken_now.setdefault(row.scope, set()).add(_key(row.Current))
+        for scope, names in fixed_names.items():
+            taken_now.setdefault(scope, set()).update(_key(n) for n in names)
 
-renamed = 0
-failed = 0
-for row, why in doomed:
-    # Known to fail, so it was never sent to Revit.
-    row.set_status(u"FAILED - {} (not attempted)".format(why))
-    failed += 1
-
-# Not `with revit.Transaction(...)`: its __exit__ swallows a commit that Revit
-# refuses, and the rows had already been marked "Renamed" by then. Here the
-# commit status is read, because a rolled-back run (a family another user has
-# checked out, a failure Revit cannot resolve) changed NOTHING in the model.
-txn = DB.Transaction(doc, "Rename Families")
-rolled_back = u""
-try:
-    txn.Start()
-    live, unreadable = live_names(ordered)
-    todo = []
-    for row in ordered:
-        if row.scope in unreadable:
-            row.set_status(u"FAILED - could not read the existing names here, "
-                           u"left untouched")
-            failed += 1
-        else:
-            todo.append(row)
-
-    # Names are keyed lower-cased (Revit ignores case): {scope: {key: [rows that
-    # want it]}}, and {scope: {keys held right now}}.
-    claimed = {}
-    for row in todo:
-        claimed.setdefault(row.scope, {}).setdefault(_key(row.New), []).append(row)
-    taken_now = {}
-    for row in all_rows:
-        taken_now.setdefault(row.scope, set()).add(_key(row.Current))
-    for scope, names in fixed_names.items():
-        taken_now.setdefault(scope, set()).update(_key(n) for n in names)
-
-    for i, row in enumerate(todo):
-        # Park only when ANOTHER row wants the name this one sits on. A row that
-        # just changes its own capitals (ab -> AB) wants its own name: no parking.
-        if not [r for r in claimed.get(row.scope, {}).get(_key(row.Current), [])
-                if r is not row]:
-            continue
-        park = u"{}_MTTMP{}".format(row.Current, i)
-        while (_key(park) in taken_now.get(row.scope, set())
-               or _key(park) in live.get(row.scope, {})):
-            park += u"X"
-        try:
-            _set_elem_name(row.element, park)
-            row._parked = True
-            _live_move(live, row, park)
-        except Exception as exc:
-            row.set_status(u"FAILED - {}".format(_why(exc)))
-            failed += 1
-
-    for row in todo:
-        if row.Status.startswith(u"FAILED"):
-            continue
-        try:
-            # Safety net: the preview already blocks clashes, but it works on the
-            # names read at the start. Never write a name another element holds.
-            holder = live.get(row.scope, {}).get(_key(row.New))
-            if holder is not None and holder != _id_val(row.element.Id):
-                raise Exception(u"another {} already has the name \"{}\""
-                                .format(u"family" if row.is_family
-                                        else u"type in this family", row.New))
-            _set_elem_name(row.element, row.New)
-            _live_move(live, row, row.New)
-            row.set_status(u"Renamed")
-            renamed += 1
-        except Exception as exc:
-            failed += 1
-            reason = _why(exc)
-            if not row.parked:
-                row.set_status(u"FAILED - {}".format(reason))
+        for i, row in enumerate(todo):
+            # Park only when ANOTHER row wants the name this one sits on. A row that
+            # just changes its own capitals (ab -> AB) wants its own name: no parking.
+            if not [r for r in claimed.get(row.scope, {}).get(_key(row.Current), [])
+                    if r is not row]:
                 continue
-            # This one is sitting on a throwaway name right now. Leaving it
-            # there would plant junk in the model, so put the original back --
-            # unless something else has taken that name in the meantime (then
-            # restoring would make the very duplicate this tool exists to
-            # prevent), or the restore itself fails: either way, say which name
-            # it is actually stuck on.
-            temp = row._held
-            holder = live.get(row.scope, {}).get(_key(row.Current))
-            if holder is not None and holder != _id_val(row.element.Id):
-                row.set_status(u"FAILED - STILL ON TEMP NAME - {} (its original "
-                               u"name is taken now, rename by hand) - {}"
-                               .format(temp, reason))
+            park = u"{}_MTTMP{}".format(row.Current, i)
+            while (_key(park) in taken_now.get(row.scope, set())
+                   or _key(park) in live.get(row.scope, {})):
+                park += u"X"
+            try:
+                _set_elem_name(row.element, park)
+                row._parked = True
+                _live_move(live, row, park)
+            except Exception as exc:
+                row.set_status(u"FAILED - {}".format(_why(exc)))
+                failed += 1
+
+        for row in todo:
+            if row.Status.startswith(u"FAILED"):
                 continue
             try:
-                _set_elem_name(row.element, row.Current)
-                _live_move(live, row, row.Current)
-                row.set_status(u"FAILED (original name restored) - {}"
-                               .format(reason))
-            except Exception:
-                row.set_status(u"FAILED - STILL ON TEMP NAME - {} (rename by "
-                               u"hand) - {}".format(temp, reason))
+                # Safety net: the preview already blocks clashes, but it works on the
+                # names read at the start. Never write a name another element holds.
+                holder = live.get(row.scope, {}).get(_key(row.New))
+                if holder is not None and holder != _id_val(row.element.Id):
+                    raise Exception(u"another {} already has the name \"{}\""
+                                    .format(u"family" if row.is_family
+                                            else u"type in this family", row.New))
+                _set_elem_name(row.element, row.New)
+                _live_move(live, row, row.New)
+                row.set_status(u"Renamed")
+                renamed += 1
+            except Exception as exc:
+                failed += 1
+                reason = _why(exc)
+                if not row.parked:
+                    row.set_status(u"FAILED - {}".format(reason))
+                    continue
+                # This one is sitting on a throwaway name right now. Leaving it
+                # there would plant junk in the model, so put the original back --
+                # unless something else has taken that name in the meantime (then
+                # restoring would make the very duplicate this tool exists to
+                # prevent), or the restore itself fails: either way, say which name
+                # it is actually stuck on.
+                temp = row._held
+                holder = live.get(row.scope, {}).get(_key(row.Current))
+                if holder is not None and holder != _id_val(row.element.Id):
+                    row.set_status(u"FAILED - STILL ON TEMP NAME - {} (its original "
+                                   u"name is taken now, rename by hand) - {}"
+                                   .format(temp, reason))
+                    continue
+                try:
+                    _set_elem_name(row.element, row.Current)
+                    _live_move(live, row, row.Current)
+                    row.set_status(u"FAILED (original name restored) - {}"
+                                   .format(reason))
+                except Exception:
+                    row.set_status(u"FAILED - STILL ON TEMP NAME - {} (rename by "
+                                   u"hand) - {}".format(temp, reason))
 
-    result = txn.Commit()
-    if result != DB.TransactionStatus.Committed:
-        rolled_back = u"Revit did not commit the transaction ({})".format(result)
-except Exception as exc:
-    rolled_back = u"the run was aborted ({})".format(_why(exc))
-    try:
-        if txn.HasStarted() and not txn.HasEnded():
-            txn.RollBack()
-    except Exception:
-        pass
+        result = txn.Commit()
+        if result != DB.TransactionStatus.Committed:
+            rolled_back = u"Revit did not commit the transaction ({})".format(result)
+    except Exception as exc:
+        run.error()
+        rolled_back = u"the run was aborted ({})".format(_why(exc))
+        try:
+            if txn.HasStarted() and not txn.HasEnded():
+                txn.RollBack()
+        except Exception:
+            pass
 
-if rolled_back:
-    # The rollback undid EVERYTHING, parking included: a row that said "STILL ON
-    # TEMP NAME" or "original name restored" refers to a state that no longer
-    # exists. Only the rows that were never written to keep their own status
-    # ("could not read"; the "(not attempted)" ones are not in `ordered`).
-    for row in ordered:
-        if not row.Status.startswith(u"FAILED - could not read"):
-            row.set_status(u"NOT APPLIED - {}".format(rolled_back))
-    renamed = 0
-    failed = len(ordered) + len(doomed)
+    if rolled_back:
+        # The rollback undid EVERYTHING, parking included: a row that said "STILL ON
+        # TEMP NAME" or "original name restored" refers to a state that no longer
+        # exists. Only the rows that were never written to keep their own status
+        # ("could not read"; the "(not attempted)" ones are not in `ordered`).
+        for row in ordered:
+            if not row.Status.startswith(u"FAILED - could not read"):
+                row.set_status(u"NOT APPLIED - {}".format(rolled_back))
+        renamed = 0
+        failed = len(ordered) + len(doomed)
 
-# --------------------------------------------------------------------------
-# Report (Export CSV comes free with show_table)
-# --------------------------------------------------------------------------
-# Rows left on a throwaway name (only possible when the run did commit): the
-# model has junk names the user must fix by hand, so the headline says so.
-stuck = sum(1 for r in ordered if u"STILL ON TEMP NAME" in r.Status)
-stuck_note = u"   |   {} stuck on temp name".format(stuck) if stuck else u""
+    # --------------------------------------------------------------------------
+    # Report (Export CSV comes free with show_table)
+    # --------------------------------------------------------------------------
+    # Rows left on a throwaway name (only possible when the run did commit): the
+    # model has junk names the user must fix by hand, so the headline says so.
+    stuck = sum(1 for r in ordered if u"STILL ON TEMP NAME" in r.Status)
+    stuck_note = u"   |   {} stuck on temp name".format(stuck) if stuck else u""
 
-report = [[r.kind, r.Category, r.Current, r.New, r.Status]
-          for r in ordered + blocked + [d[0] for d in doomed]]
+    report = [[r.kind, r.Category, r.Current, r.New, r.Status]
+              for r in ordered + blocked + [d[0] for d in doomed]]
 
-bits = []
-if int(sldStart.Value):
-    bits.append(u"Cut {} from the start".format(int(sldStart.Value)))
-if int(sldEnd.Value):
-    bits.append(u"Cut {} from the end".format(int(sldEnd.Value)))
-if txtTag.Text:
-    bits.append(u"Removed '{}'".format(txtTag.Text))
-if case_mode() == "title":
-    bits.append(u"Title Case (acronyms: {})".format(ACRONYM_PATH))
-elif case_mode() == "upper":
-    bits.append(u"UPPERCASE")
-if txtFind.Text:
-    bits.append(u"Replaced '{}' with '{}'".format(txtFind.Text, txtRepl.Text))
-if txtPre.Text:
-    bits.append(u"Prefix '{}'".format(txtPre.Text))
-if txtSuf.Text:
-    bits.append(u"Suffix '{}'".format(txtSuf.Text))
+    bits = []
+    if int(sldStart.Value):
+        bits.append(u"Cut {} from the start".format(int(sldStart.Value)))
+    if int(sldEnd.Value):
+        bits.append(u"Cut {} from the end".format(int(sldEnd.Value)))
+    if txtTag.Text:
+        bits.append(u"Removed '{}'".format(txtTag.Text))
+    if case_mode() == "title":
+        bits.append(u"Title Case (acronyms: {})".format(ACRONYM_PATH))
+    elif case_mode() == "upper":
+        bits.append(u"UPPERCASE")
+    if txtFind.Text:
+        bits.append(u"Replaced '{}' with '{}'".format(txtFind.Text, txtRepl.Text))
+    if txtPre.Text:
+        bits.append(u"Prefix '{}'".format(txtPre.Text))
+    if txtSuf.Text:
+        bits.append(u"Suffix '{}'".format(txtSuf.Text))
 
-ui.show_table(
-    report,
-    [("Kind", 70), ("Category", "1.4*"), ("Old name", "2*"),
-     ("New name", "2*"), ("Status", "1.4*")],
-    title="Rename Families",
-    subtitle=(u"Nothing was renamed: {}".format(rolled_back) if rolled_back
-              else u"{} renamed   |   {} skipped (clash)   |   {} failed{}"
-                   .format(renamed, len(blocked), failed, stuck_note)),
-    summary=u"   |   ".join(bits) if bits else u"No rule applied",
-    width=1000, height=620, context=doc.Title,
-)
+    ui.show_table(
+        report,
+        [("Kind", 70), ("Category", "1.4*"), ("Old name", "2*"),
+         ("New name", "2*"), ("Status", "1.4*")],
+        title="Rename Families",
+        subtitle=(u"Nothing was renamed: {}".format(rolled_back) if rolled_back
+                  else u"{} renamed   |   {} skipped (clash)   |   {} failed{}"
+                       .format(renamed, len(blocked), failed, stuck_note)),
+        summary=u"   |   ".join(bits) if bits else u"No rule applied",
+        width=1000, height=620, context=doc.Title,
+    )
