@@ -219,6 +219,7 @@ class Language(unittest.TestCase):
     def test_escapes_in_strings_are_decoded(self):
         self.assertEqual(self.rules_for('lib/a.py', "x = u'acci\\u00f3n'\n"), ['spanish'])
         self.assertEqual(self.rules_for('lib/a.py', "x = u'Zorb\\xe1q'\n"), ['name', 'spanish'])
+        self.assertEqual(self.rules_for('lib/a.py', "x = 'Zorb\\xe1q'\n"), ['name', 'spanish'])
         self.assertEqual(self.rules_for('lib/a.py', "x = 'a\\nzorbaq'\n"), ['name'])
         self.assertEqual(self.rules_for('lib/a.py', "x = b'acci\\xc3\\xb3n'\n"), ['spanish'])
 
@@ -230,11 +231,31 @@ class Language(unittest.TestCase):
         self.assertEqual(self.rules_for(
             'lib/a.py', 'if raw.startswith("\\xef\\xbb\\xbf"):  # tolerate a BOM\n'), [])
 
-    def test_bytes_that_are_not_utf8_are_not_letters(self):
-        # Magic numbers and other binary data: read the token as written,
-        # never as latin-1 letters (b'\001\332' would be an accented u).
-        for literal in ("b'\\001\\332'", "'\\001\\332'", "b'\\xe1\\xe9'", "'\\xe1\\xe9'"):
+    def test_binary_data_is_not_read_as_letters(self):
+        # Magic numbers and other binary data: a bytes literal that is not
+        # UTF-8, or a plain str with control characters, is read as written
+        # for the spanish rule (b'\001\332' would be an accented u).
+        for literal in ("b'\\001\\332'", "'\\001\\332'", "b'\\xe1\\xe9'", "b'\\xff\\xd8\\xff\\xe0'",
+                        "'\\x00\\xe1\\xe9'", "'\\x1b\\xf3'"):
             self.assertEqual(self.rules_for('lib/a.py', 'x = %s\n' % literal), [], literal)
+
+    def test_plain_str_with_latin1_escapes_is_text(self):
+        # IronPython's str is unicode: the button shows the accented text.
+        for literal in ("'\\xbfSure?'", "'acci\\xf3n'", "'\\xe1\\xe9'", "'acci\\xf3n\\t'"):
+            self.assertEqual(self.rules_for('lib/a.py', 'x = %s\n' % literal),
+                             ['spanish'], literal)
+
+    def test_name_in_a_bytes_literal_that_is_not_utf8(self):
+        # Read as latin-1 for the name rule; bytes stay raw for spanish.
+        self.assertEqual(self.rules_for('lib/a.py', "x = b'Zorb\\xe1q'\n"), ['name'])
+
+    def test_plain_str_mixing_a_wide_character_and_an_escape(self):
+        # One reading on Python 2 and 3: the literal is text, so every escape
+        # is a code point. A character beyond latin-1 rules out reading the
+        # escapes as UTF-8 bytes.
+        self.assertEqual(self.rules_for('lib/a.py', "x = 'Zorb\\xe1q\\u20ac'\n"),
+                         ['name', 'spanish'])
+        self.assertEqual(self.rules_for('lib/a.py', "x = 'acci\\xc3\\xb3n\\u20ac'\n"), [])
 
     def test_literal_holding_the_internal_line_marker_keeps_its_lines(self):
         # An escaped x01 inside a docstring decodes to the character the

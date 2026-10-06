@@ -64,6 +64,7 @@ ACCENTED = u'\xe1\xe9\xed\xf3\xfa\xf1'
 INVERTED_MARKS = u'\xbf\xa1'
 BOM = codecs.BOM_UTF8.decode('utf-8')
 LINE_BREAK = u'\x01'  # stands for a newline of the source inside a string literal
+NEWLINES = u'\t\r\n' + LINE_BREAK
 WORD = re.compile(r'[^\W\d_]+', re.UNICODE)
 # Tokens whose text is prose: comments and strings (f-string pieces, from
 # Python 3.12, are named FSTRING_MIDDLE).
@@ -124,43 +125,66 @@ def _prefix(literal):
     return literal[:len(literal) - len(literal.lstrip(u'rRuUbBfF'))].lower()
 
 
-def _string_value(literal):
-    """The text a Python string literal stands for, as one line of text per source line.
+def _has_control(text):
+    """True when text has a control character other than tab, CR and LF."""
+    return any(unicodedata.category(c) == 'Cc' and c not in NEWLINES for c in text)
 
-    Each newline of the source is kept as LINE_BREAK, so that the lines of the
-    text are the lines of the file whatever the escapes do (an escaped newline
-    stays inside its line). A literal that cannot be decoded is read as it is
-    written.
 
-    Bytes are text only when they are valid UTF-8 (UTF-8 escapes such as
-    '\\xc3\\xb3' spell one letter). Anything else is binary data, such as a magic
-    number, and is read as written: decoding it as latin-1 would turn it into
-    accented letters. A plain str literal is bytes on Python 2 and text on
-    Python 3: it is read the Python 2 way on both, so a local run and the
-    Python 2.7 container give the same findings.
+def _readings(literal):
+    """(spanish, names): the texts the two rules read for one string literal.
+
+    Each newline of the source is kept as LINE_BREAK, so that the lines of a
+    text are the lines of the file whatever the escapes do. A literal that
+    cannot be evaluated is read as it is written (the raw token).
+
+    A plain str literal is text, as it is in IronPython and on Python 3, and
+    it is read as text on Python 2 too (it is evaluated as a u'' literal, so
+    every escape is a code point and a typed character beyond latin-1 cannot
+    change the reading). Its text is looked at in two ways: when the code
+    points are the bytes of valid UTF-8 ('\\xc3\\xb3' spells one letter), the
+    UTF-8 reading; otherwise the text itself, which is latin-1 ('\\xe1' is an
+    accented a). Bytes with control characters are binary data, a magic number
+    for instance: the spanish rule reads such a literal as written, so that
+    it does not turn into accented letters.
+
+    A bytes literal is text only when it is valid UTF-8; otherwise the spanish
+    rule reads it as written. The name rule reads, as well as the spanish
+    reading, the raw token and the latin-1 reading of anything that is not
+    UTF-8: binary data that spells exactly a name is not a concern.
     """
     protected = literal.replace(u'\n', LINE_BREAK)
+    prefix = _prefix(literal)
+    source = protected if any(c in prefix for c in 'bur') else u'u' + protected
     try:
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')  # invalid escapes warn on Python 3.12+
-            value = ast.literal_eval(protected)
+            value = ast.literal_eval(source)
     except Exception:  # whatever does not evaluate is read as it is written
-        return protected
-    if isinstance(value, bytes):  # a bytes literal, or a plain str on Python 2
+        return protected, [protected]
+    if 'b' in prefix:
+        if not isinstance(value, bytes):
+            return protected, [protected]
         try:
-            return value.decode('utf-8')
+            text = value.decode('utf-8')
         except UnicodeDecodeError:
-            return protected
+            return protected, [protected, value.decode('latin-1')]
+        return text, [text, protected]
+    if isinstance(value, bytes):  # a raw str literal on Python 2
+        try:
+            value = value.decode('utf-8')
+        except UnicodeDecodeError:
+            value = value.decode('latin-1')
     if not isinstance(value, type(u'')):
-        return protected
-    if u'u' not in _prefix(literal):
-        try:
-            return value.encode('latin-1').decode('utf-8')
-        except UnicodeEncodeError:
-            pass  # a character beyond latin-1 was typed: the text is text
-        except UnicodeDecodeError:
-            return protected
-    return value
+        return protected, [protected]
+    if u'u' in prefix:
+        return value, [value, protected]
+    reading = value
+    try:
+        reading = value.encode('latin-1').decode('utf-8')
+    except UnicodeError:
+        pass  # not UTF-8 spelled in code points: the text itself
+    spanish = protected if _has_control(reading) else reading
+    return spanish, [reading, value, protected]
 
 
 def _is_prose_token(kind):
@@ -168,26 +192,18 @@ def _is_prose_token(kind):
     return name in TEXT_TOKENS or name.endswith('STRING_MIDDLE')
 
 
-def _token_lines(kind, string, row):
-    """[(line number, text)] of one token.
-
-    A string literal is replaced by the text it stands for, line by line. When
-    that has a different number of lines than the token (the literal itself
-    holds the LINE_BREAK character), the raw lines of the token are used.
-    """
-    lines = string.split(u'\n')
-    if tokenize.tok_name.get(kind) == 'STRING':
-        value = _string_value(string).split(LINE_BREAK)
-        if len(value) == len(lines):
-            lines = value
-    return [(row + offset, part) for offset, part in enumerate(lines)]
+def _fit(text, raw_lines):
+    """The lines of a reading, or the raw lines of the token if they do not match."""
+    lines = text.split(LINE_BREAK)
+    return lines if len(lines) == len(raw_lines) else raw_lines
 
 
 def _python_lines(text):
     """(prose, everything): line number -> text of the line, from the tokens.
 
-    prose has only comments and strings; everything has every token. Returns
-    None when the file cannot be tokenized.
+    prose has only comments and strings, as the spanish rule reads them;
+    everything has every token, with each reading of a string for the name
+    rule. Returns None when the file cannot be tokenized.
     """
     prose, everything = {}, {}
     try:
@@ -198,10 +214,17 @@ def _python_lines(text):
         kind, string, row = token[0], token[1], token[2][0]
         if not string.strip():
             continue
-        for number, part in _token_lines(kind, string, row):
-            everything.setdefault(number, []).append(part)
-            if _is_prose_token(kind):
-                prose.setdefault(number, []).append(part)
+        raw = string.split(u'\n')
+        if tokenize.tok_name.get(kind) == 'STRING':
+            spanish, names = _readings(string)
+            readings = [(_fit(spanish, raw), True)] + [(_fit(t, raw), False) for t in names]
+        else:
+            readings = [(raw, _is_prose_token(kind))]
+        for lines, is_prose in readings:
+            for offset, part in enumerate(lines):
+                everything.setdefault(row + offset, []).append(part)
+                if is_prose:
+                    prose.setdefault(row + offset, []).append(part)
     return (dict((n, u' '.join(p)) for n, p in prose.items()),
             dict((n, u' '.join(p)) for n, p in everything.items()))
 
