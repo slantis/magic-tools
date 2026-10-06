@@ -5,7 +5,7 @@ Rejects what an extension for Revit has no reason to ship: unexpected file
 types, binaries other than the listed fonts and well-formed PNG icons,
 unparseable JSON/YAML, and Python, XAML or SVG that reaches the network,
 starts processes, runs dynamic code, loads native code, touches the
-registry or hides a payload in a string.
+registry, hides a payload in a string or star-imports names out of sight.
 
 The .github/ folder (config['tooling_dirs']) only gets the file type and
 parse checks: the CI scripts there legitimately use the network.
@@ -16,6 +16,13 @@ Usage:
 The default config is .github/policy/policy.json next to this script.
 Runs on Python 2.7 (CI) and Python 3.
 """
+# Known limits. This check is a backstop for human review, not a sandbox; it
+# reads names, so it cannot see what only exists at run time:
+# - getattr() with a name that is not a string literal (getattr(os, name));
+# - a payload split into literals shorter than the encoded-string threshold
+#   and joined at run time ('QUJD...' + 'QUJD...');
+# - calls made through a variable, such as a System.Diagnostics.Process
+#   created as an instance and started through it (p = Process(); p.Start()).
 from __future__ import print_function
 
 import argparse
@@ -53,14 +60,18 @@ PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
 NETWORK_MODULES = frozenset([
     'socket', 'urllib', 'urllib2', 'urllib3', 'httplib', 'http', 'ssl', 'ftplib',
     'smtplib', 'telnetlib', 'poplib', 'imaplib', 'xmlrpclib', 'SocketServer', 'webbrowser'])
-PROCESS_MODULES = frozenset(['subprocess', 'multiprocessing', 'popen2', 'commands', 'pty'])
-DYNAMIC_MODULES = frozenset(['imp', 'importlib', 'marshal', 'pickle', 'cPickle', 'shelve'])
+# nt and posix are the modules behind os (nt on IronPython for Windows).
+OS_MODULES = ('os', 'nt', 'posix')
+PROCESS_MODULES = frozenset(['subprocess', 'multiprocessing', 'popen2', 'commands', 'pty',
+                             'nt', 'posix'])
+DYNAMIC_MODULES = frozenset(['imp', 'importlib', 'marshal', 'pickle', 'cPickle', 'shelve',
+                             'builtins', '__builtin__'])
+# Any reference to these reaches eval and friends without naming them.
+BUILTIN_NAMESPACES = frozenset(['__builtins__', '__builtin__'])
 REGISTRY_MODULES = frozenset(['_winreg', 'winreg'])
-
-_DYNAMIC_BUILTINS = ('eval', 'exec', 'execfile', 'compile', '__import__', 'input')
-# Bare builtin names, plus the same builtins reached through their module.
-DYNAMIC_CALLS = frozenset(_DYNAMIC_BUILTINS) | frozenset(
-    module + '.' + name for module in ('builtins', '__builtin__') for name in _DYNAMIC_BUILTINS)
+DYNAMIC_CALLS = frozenset(['eval', 'exec', 'execfile', 'compile', '__import__', 'input'])
+# pyRevit code commonly star-imports the Revit API; anything else must name what it imports.
+STAR_IMPORT_ALLOWED = (['Autodesk', 'Revit', 'DB'], ['Autodesk', 'Revit', 'UI'])
 
 OS_PROCESS_MEMBERS = re.compile(r'(?:system|popen\w*|exec\w*|spawn\w*|startfile|fork\w*|kill)$')
 PROCESS_START = re.compile(r'Start$')
@@ -184,13 +195,13 @@ def _network_name(parts, imported):
 
 def _process_name(parts, imported):
     return ((imported and parts[0] in PROCESS_MODULES)
-            or _member_of(parts, 'os', OS_PROCESS_MEMBERS)
+            or any(_member_of(parts, module, OS_PROCESS_MEMBERS) for module in OS_MODULES)
             or _member_of(parts, 'Process', PROCESS_START)
             or 'ProcessStartInfo' in parts)
 
 
 def _dynamic_name(parts, imported):
-    return imported and parts[0] in DYNAMIC_MODULES
+    return (imported and parts[0] in DYNAMIC_MODULES) or parts[0] in BUILTIN_NAMESPACES
 
 
 def _native_name(parts, imported):
@@ -229,6 +240,24 @@ else:
         return node.s if isinstance(node, _STRING_NODES) else None
 
 
+def _getattr_literal(node):
+    """(object, name) for getattr(object, 'name'[, default]); None otherwise."""
+    if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id == 'getattr' and len(node.args) in (2, 3)):
+        return None
+    name = _string_value(node.args[1])
+    if name is None:
+        return None
+    if isinstance(name, bytes):
+        name = name.decode('latin-1')
+    return node.args[0], name
+
+
+def _star_import_allowed(node):
+    module = (node.module or '').split('.')
+    return not node.level and any(_under(module, prefix) for prefix in STAR_IMPORT_ALLOWED)
+
+
 def _call_arguments(node):
     args = list(node.args) + [kw.value for kw in node.keywords]
     for extra in (getattr(node, 'starargs', None), getattr(node, 'kwargs', None)):  # Python 2
@@ -261,16 +290,34 @@ class _PythonScanner(ast.NodeVisitor):
                 self._hit(node, rule, u'{0} {1}'.format(verb, name))
 
     def _chain(self, node):
-        """Parts of a Name/Attribute chain, aliases resolved, and the root
-        expression when it is not a name (its part is then '')."""
-        attrs = []
-        while isinstance(node, ast.Attribute):
-            attrs.append(node.attr)
-            node = node.value
+        """Parts of an attribute chain, aliases resolved; getattr(X, 'a') reads
+        as X.a. Also returns the nodes still to visit: the root expression when
+        it is not a name (its part is then '') and any getattr defaults."""
+        attrs, rest = [], []
+        while True:
+            if isinstance(node, ast.Attribute):
+                attrs.append(node.attr)
+                node = node.value
+                continue
+            literal = _getattr_literal(node)
+            if literal is None:
+                break
+            rest.extend(node.args[2:])
+            node, name = literal
+            attrs.append(name)
         attrs.reverse()
         if isinstance(node, ast.Name):
-            return self.aliases.get(node.id, node.id).split('.') + attrs, None
-        return [''] + attrs, node
+            return self.aliases.get(node.id, node.id).split('.') + attrs, rest
+        return [''] + attrs, rest + [node]
+
+    def _visit_chain(self, node):
+        # Only the longest chain is checked, then whatever it did not cover.
+        parts, rest = self._chain(node)
+        self._check(node, parts, False)
+        for child in rest:
+            self.visit(child)
+
+    visit_Attribute = _visit_chain
 
     def visit_Import(self, node):
         for alias in node.names:
@@ -284,19 +331,22 @@ class _PythonScanner(ast.NodeVisitor):
             full = '.'.join(part for part in (node.module, alias.name) if part)
             if alias.name != '*':
                 self.aliases[alias.asname or alias.name] = full
+            elif not _star_import_allowed(node):
+                self._hit(node, 'star-import', u'from {0}{1} import * hides the names it '
+                                               u'brings in'.format('.' * (node.level or 0),
+                                                                   node.module or ''))
             self._check(node, full.split('.'), True)
 
-    def visit_Attribute(self, node):
-        # Only the longest chain is checked; its root is visited if it is not a name.
-        parts, root = self._chain(node)
-        self._check(node, parts, False)
-        if root is not None:
-            self.visit(root)
+    def visit_Name(self, node):
+        if node.id in BUILTIN_NAMESPACES:
+            self._hit(node, 'dynamic-code', u'uses {0}'.format(node.id))
 
     def visit_Call(self, node):
+        if _getattr_literal(node) is not None:
+            return self._visit_chain(node)
         if isinstance(node.func, (ast.Name, ast.Attribute)):
-            parts, root = self._chain(node.func)
-            if root is None:
+            parts, _ = self._chain(node.func)
+            if parts[0]:
                 self._check_call(node, '.'.join(parts))
         self.generic_visit(node)
 

@@ -171,6 +171,43 @@ class PythonRules(unittest.TestCase):
                     "import Microsoft\nk = Microsoft.Win32.Registry.CurrentUser"]:
             self.assertIn('registry', rules(self.check(src + "\n")), src)
 
+    def test_nt_and_posix_mirror_os(self):
+        for src in ["import nt", "import posix as p", "from nt import startfile"]:
+            self.assertIn('process', rules(self.check(src + "\n")), src)
+        for src in ["import nt\nnt.system('x')", "import posix\nposix.spawnv(0, 'a', [])"]:
+            found = self.check(src + "\n")
+            self.assertIn(2, [f.line for f in found if f.rule == 'process'], src)
+
+    def test_star_imports(self):
+        for src in ["from os import *", "from System.Diagnostics import *",
+                    "from . import *", "from Autodesk.Revit.DBX import *"]:
+            self.assertIn('star-import', rules(self.check(src + "\n")), src)
+        for src in ["from Autodesk.Revit.DB import *", "from Autodesk.Revit.UI import *",
+                    "from Autodesk.Revit.DB.Architecture import *"]:
+            self.assertEqual(self.check(src + "\n"), [], src)
+
+    def test_builtins_module_references(self):
+        for src in ["import builtins", "import __builtin__", "from __builtin__ import open",
+                    "f = __builtins__['eval']", "b = __builtins__", "f = __builtin__.open"]:
+            self.assertIn('dynamic-code', rules(self.check(src + "\n")), src)
+
+    def test_getattr_with_a_literal_name(self):
+        for src, rule in [
+                ("import os\nf = getattr(os, 'system')", 'process'),
+                ("from System.Reflection import Assembly\n"
+                 "f = getattr(Assembly, \"LoadFrom\", None)", 'native'),
+                ("import System\nc = getattr(System, 'Net').WebClient()", 'network'),
+                ("import System\n"
+                 "s = getattr(getattr(System.Diagnostics, 'Process'), 'Start')", 'process'),
+                ("f = getattr(__builtins__, 'eval')", 'dynamic-code'),
+                ("import os\nf = getattr(os, 'path', eval('1'))", 'dynamic-code')]:
+            self.assertIn(rule, rules(self.check(src + "\n")), src)
+
+    def test_getattr_with_a_non_literal_or_harmless_name(self):
+        src = ("import os\nname = 'system'\nf = getattr(os, name)\n"
+               "g = getattr(os, 'path', None)\n")
+        self.assertEqual(self.check(src), [])
+
     def test_docstring_naming_xamlreader_is_allowed(self):
         # slantisui's styles_xaml() documents its use with XamlReader and xmlns.
         src = ('def styles():\n'
