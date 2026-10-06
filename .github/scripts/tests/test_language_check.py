@@ -218,7 +218,7 @@ class Language(unittest.TestCase):
 
     def test_escapes_in_strings_are_decoded(self):
         self.assertEqual(self.rules_for('lib/a.py', "x = u'acci\\u00f3n'\n"), ['spanish'])
-        self.assertEqual(self.rules_for('lib/a.py', "x = 'Zorb\\xe1q'\n"), ['name', 'spanish'])
+        self.assertEqual(self.rules_for('lib/a.py', "x = u'Zorb\\xe1q'\n"), ['name', 'spanish'])
         self.assertEqual(self.rules_for('lib/a.py', "x = 'a\\nzorbaq'\n"), ['name'])
         self.assertEqual(self.rules_for('lib/a.py', "x = b'acci\\xc3\\xb3n'\n"), ['spanish'])
 
@@ -229,6 +229,20 @@ class Language(unittest.TestCase):
         # A UTF-8 byte order mark written as escapes is not an inverted mark.
         self.assertEqual(self.rules_for(
             'lib/a.py', 'if raw.startswith("\\xef\\xbb\\xbf"):  # tolerate a BOM\n'), [])
+
+    def test_bytes_that_are_not_utf8_are_not_letters(self):
+        # Magic numbers and other binary data: read the token as written,
+        # never as latin-1 letters (b'\001\332' would be an accented u).
+        for literal in ("b'\\001\\332'", "'\\001\\332'", "b'\\xe1\\xe9'", "'\\xe1\\xe9'"):
+            self.assertEqual(self.rules_for('lib/a.py', 'x = %s\n' % literal), [], literal)
+
+    def test_literal_holding_the_internal_line_marker_keeps_its_lines(self):
+        # An escaped x01 inside a docstring decodes to the character the
+        # check uses internally for a newline of the source.
+        self.write('lib/a.py',
+                   'def f():\n    """First.\n    a\\x01b\n    esto es para que\n    """\n')
+        found = lc.check_language(self.root, CONFIG)
+        self.assertEqual([(f.line, f.rule) for f in found], [(4, 'spanish')])
 
     def test_escaped_newline_in_a_docstring_keeps_the_line_numbers(self):
         self.write('lib/a.py', 'def f():\n    """First.\n    Line\\nPatterns quillex\n'

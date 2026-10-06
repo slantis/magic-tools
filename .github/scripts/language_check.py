@@ -132,9 +132,12 @@ def _string_value(literal):
     stays inside its line). A literal that cannot be decoded is read as it is
     written.
 
-    A plain str literal is bytes on Python 2 (UTF-8 escapes such as '\\xc3\\xb3'
-    spell one letter) and text on Python 3: it is read the Python 2 way on both,
-    so a local run and the Python 2.7 container give the same findings.
+    Bytes are text only when they are valid UTF-8 (UTF-8 escapes such as
+    '\\xc3\\xb3' spell one letter). Anything else is binary data, such as a magic
+    number, and is read as written: decoding it as latin-1 would turn it into
+    accented letters. A plain str literal is bytes on Python 2 and text on
+    Python 3: it is read the Python 2 way on both, so a local run and the
+    Python 2.7 container give the same findings.
     """
     protected = literal.replace(u'\n', LINE_BREAK)
     try:
@@ -147,14 +150,16 @@ def _string_value(literal):
         try:
             return value.decode('utf-8')
         except UnicodeDecodeError:
-            return value.decode('latin-1')
+            return protected
     if not isinstance(value, type(u'')):
         return protected
     if u'u' not in _prefix(literal):
         try:
-            value = value.encode('latin-1').decode('utf-8')
-        except UnicodeError:
-            pass
+            return value.encode('latin-1').decode('utf-8')
+        except UnicodeEncodeError:
+            pass  # a character beyond latin-1 was typed: the text is text
+        except UnicodeDecodeError:
+            return protected
     return value
 
 
@@ -166,14 +171,15 @@ def _is_prose_token(kind):
 def _token_lines(kind, string, row):
     """[(line number, text)] of one token.
 
-    A string literal is replaced by the text it stands for, line by line.
+    A string literal is replaced by the text it stands for, line by line. When
+    that has a different number of lines than the token (the literal itself
+    holds the LINE_BREAK character), the raw lines of the token are used.
     """
     lines = string.split(u'\n')
     if tokenize.tok_name.get(kind) == 'STRING':
         value = _string_value(string).split(LINE_BREAK)
-        if len(value) != len(lines):  # the literal itself holds a LINE_BREAK
-            return [(row, u' '.join(value))]
-        lines = value
+        if len(value) == len(lines):
+            lines = value
     return [(row + offset, part) for offset, part in enumerate(lines)]
 
 
