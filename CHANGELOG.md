@@ -5,6 +5,24 @@ All notable changes to Magic Tools are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Usage data, only if you say yes.** The first click of any tool asks once whether to
+  share usage data: a random install ID, the Magic Tools, Revit and pyRevit versions, the
+  install channel (git or ZIP), and the name, result and time of each tool run. Nothing
+  is asked while Revit loads and nothing is sent before a yes. **Share usage data** at the
+  bottom of All Magic Tools turns it off (and deletes the install ID and anything not sent
+  yet) or back on; `DO_NOT_TRACK=1` or `MAGIC_TOOLS_TELEMETRY=0` turns it off for a whole
+  computer or office. See [TELEMETRY.md](TELEMETRY.md).
+- `extension.json` has a `version`, the one the usage data reports. Raise it with each
+  release.
+
+### Changed
+
+- The policy check lets `lib/telemetry.py`, and no other file, reach the network, and
+  only its two endpoints. The secrets check keeps gitleaks' default rules and allows the
+  usage data client's public token (`.github/gitleaks.toml`).
+
 ## [0.1.0] - 2026-10-06
 
 First full release: 16 tools and the All Magic Tools window for the Favorites tools.
