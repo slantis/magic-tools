@@ -1,0 +1,203 @@
+# -*- coding: utf-8 -*-
+from __future__ import unicode_literals
+
+import io
+import json
+import os
+import shutil
+import sys
+import tempfile
+import unittest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(HERE))
+
+import structure_check as sc  # noqa: E402
+
+CONFIG = {
+    "pool_panel": "Favorites.panel",
+    "groups": "lib/groups.json",
+    "icons": ["icon.png", "icon.dark.png", "icon.svg", "icon.dark.svg"],
+    "root_entries": [".github", "lib", "README.md", "CHANGELOG.md", "LICENSE",
+                     "LICENSE-CONTENT", "extension.json", "startup.py",
+                     ".gitattributes", ".gitignore"],
+    "bundle_types": [".tab", ".panel", ".stack", ".pulldown", ".splitbutton",
+                     ".pushbutton"],
+    "bundle_keys": ["layout", "title", "tooltip", "author"],
+}
+SCRIPT = '__title__ = "X"\n__doc__ = "Does X."\n'
+TAB = 'Magic-tools.tab'
+
+
+class Capture(object):
+    """Stands in for sys.stdout, on Python 2 and 3."""
+
+    def __init__(self):
+        self.parts = []
+
+    def write(self, text):
+        self.parts.append(text)
+
+    def flush(self):
+        pass
+
+    def getvalue(self):
+        return ''.join(self.parts)
+
+
+class Structure(unittest.TestCase):
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.write(TAB + '/bundle.yaml', 'layout:\n  - Tools\n  - Favorites\n')
+        self.write(TAB + '/Tools.panel/bundle.yaml', 'layout:\n  - Gallery\n  - Nav\n')
+        self.button(TAB + '/Tools.panel/Gallery.pushbutton')
+        self.write(TAB + '/Tools.panel/Nav.stack/bundle.yaml', 'layout:\n  - Next\n')
+        self.button(TAB + '/Tools.panel/Nav.stack/Next.pushbutton')
+        self.write(TAB + '/Favorites.panel/bundle.yaml',
+                   'layout:\n  - Rename\n  - "--- Analysis"\n  - Inspect\n')
+        self.button(TAB + '/Favorites.panel/Rename.pushbutton')
+        self.button(TAB + '/Favorites.panel/Inspect.pushbutton')
+        self.groups([{"group": "Actions", "tools": ["Rename"]},
+                     {"group": "Analysis", "tools": ["Inspect"]}])
+        self.write('README.md', '# x\n')
+        self.write('startup.py', 'import os\n')
+
+    def tearDown(self):
+        shutil.rmtree(self.root)
+
+    def write(self, rel, text):
+        path = os.path.join(self.root, *rel.split('/'))
+        if not os.path.isdir(os.path.dirname(path)):
+            os.makedirs(os.path.dirname(path))
+        with io.open(path, 'w', encoding='utf-8') as fh:
+            fh.write(text)
+
+    def remove(self, rel):
+        path = os.path.join(self.root, *rel.split('/'))
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+        else:
+            os.remove(path)
+
+    def button(self, rel, script=SCRIPT):
+        self.write(rel + '/script.py', script)
+        for icon in CONFIG['icons']:
+            self.write(rel + '/' + icon, 'x')
+
+    def groups(self, data):
+        self.write('lib/groups.json', json.dumps(data))
+
+    def check(self):
+        return sc.check_structure(self.root, CONFIG)
+
+    def run_main(self, argv):
+        """Exit code of main(argv), with its printed report kept out of the test log."""
+        saved, sys.stdout = sys.stdout, Capture()
+        try:
+            return sc.main(argv)
+        finally:
+            sys.stdout = saved
+
+    def assertFlags(self, needle):
+        found = self.check()
+        self.assertTrue(any(needle in f.path or needle in f.message for f in found),
+                        [sc.format_finding(f) for f in found])
+        self.assertTrue(all(f.rule == 'structure' for f in found))
+
+    def test_valid_tree_passes(self):
+        self.assertEqual(self.check(), [])
+
+    def test_missing_icon(self):
+        self.remove(TAB + '/Favorites.panel/Rename.pushbutton/icon.dark.svg')
+        self.assertFlags('icon.dark.svg')
+
+    def test_missing_script(self):
+        self.remove(TAB + '/Tools.panel/Nav.stack/Next.pushbutton/script.py')
+        self.assertFlags('Next.pushbutton')
+
+    def test_missing_title(self):
+        self.button(TAB + '/Favorites.panel/Rename.pushbutton', '__doc__ = "x"\n')
+        self.assertFlags('__title__')
+
+    def test_missing_doc(self):
+        self.button(TAB + '/Favorites.panel/Rename.pushbutton', '__title__ = "x"\n')
+        self.assertFlags('__doc__')
+
+    def test_module_docstring_counts_as_doc(self):
+        self.button(TAB + '/Favorites.panel/Rename.pushbutton',
+                    '"""Does X."""\n__title__ = "x"\n')
+        self.assertEqual(self.check(), [])
+
+    def test_folder_missing_from_layout(self):
+        self.button(TAB + '/Tools.panel/Nav.stack/Orphan.pushbutton')
+        self.assertFlags('Orphan')
+
+    def test_layout_entry_without_folder(self):
+        self.write(TAB + '/Tools.panel/bundle.yaml', 'layout:\n  - Gallery\n  - Nav\n  - Ghost\n')
+        self.assertFlags('Ghost')
+
+    def test_panel_missing_from_tab_layout(self):
+        self.write(TAB + '/bundle.yaml', 'layout:\n  - Tools\n')
+        self.assertFlags('Favorites')
+
+    def test_pool_tool_missing_from_groups(self):
+        self.groups([{"group": "Actions", "tools": ["Rename"]}])
+        self.assertFlags('Inspect')
+
+    def test_groups_entry_without_folder(self):
+        self.groups([{"group": "Actions", "tools": ["Rename", "Inspect", "Ghost"]}])
+        self.assertFlags('Ghost')
+
+    def test_unknown_bundle_type(self):
+        self.write(TAB + '/Tools.panel/Web.urlbutton/bundle.yaml', 'hyperlink: "x"\n')
+        self.assertFlags('Web.urlbutton')
+
+    def test_unknown_root_entry(self):
+        self.write('hooks/doc-opened.py', 'x = 1\n')
+        self.assertFlags('hooks')
+
+    def test_unknown_bundle_key(self):
+        self.write(TAB + '/Tools.panel/Nav.stack/bundle.yaml',
+                   'layout:\n  - Next\nengine:\n  clean: true\n')
+        self.assertFlags('engine')
+
+    def test_main_exit_codes(self):
+        cfg = os.path.join(self.root, 'lib', 'policy.json')
+        with io.open(cfg, 'w', encoding='utf-8') as fh:
+            fh.write(json.dumps({'structure': CONFIG}, ensure_ascii=False))
+        self.assertEqual(self.run_main(['--root', self.root, '--config', cfg]), 0)
+        self.remove(TAB + '/Favorites.panel/Rename.pushbutton/icon.png')
+        self.assertEqual(self.run_main(['--root', self.root, '--config', cfg]), 1)
+
+    # Beyond the brief: edges of the rules above.
+
+    def test_no_groups_file_means_no_group_checks(self):
+        self.remove('lib/groups.json')
+        self.assertEqual(self.check(), [])
+
+    def test_unreadable_bundle_yaml(self):
+        self.write(TAB + '/Tools.panel/bundle.yaml', 'layout: [Gallery\n')
+        self.assertFlags('bundle.yaml')
+
+    def test_script_that_does_not_parse(self):
+        self.button(TAB + '/Favorites.panel/Rename.pushbutton', 'def broken(:\n')
+        self.assertFlags('cannot be parsed')
+
+    def test_script_with_an_encoding_line(self):
+        self.button(TAB + '/Favorites.panel/Rename.pushbutton',
+                    '# -*- coding: utf-8 -*-\n__title__ = "X"\n__doc__ = "Does X."\n')
+        self.assertEqual(self.check(), [])
+
+    def test_title_inside_a_function_is_not_module_level(self):
+        self.button(TAB + '/Favorites.panel/Rename.pushbutton',
+                    'def f():\n    __title__ = "x"\n__doc__ = "x"\n')
+        self.assertFlags('__title__')
+
+    def test_unreadable_config_exits_with_2(self):
+        missing = os.path.join(self.root, 'missing.json')
+        self.assertEqual(self.run_main(['--root', self.root, '--config', missing]), 2)
+
+
+if __name__ == '__main__':
+    unittest.main()
