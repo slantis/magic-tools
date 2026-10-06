@@ -1,0 +1,12 @@
+{
+ "presets": false,
+ "defaults": [
+  "View Template Manager",
+  "Goodbye Filter",
+  "Rename Families",
+  "Inspect Element Graphics",
+  "Print Set Manager"
+ ],
+ "store": "_magictools_os_favorites.json",
+ "foreign": false
+}

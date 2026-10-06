@@ -9,3 +9,6 @@ __pycache__/
 # Editors
 .vscode/
 .idea/
+
+# Temporary files
+*.tmp

@@ -1,0 +1,42 @@
+__title__ = "Prev."
+__doc__ = "Navigate to the previous sheet in Project Browser order. Wraps around from the first sheet back to the last."
+__author__ = 'slantis'
+
+
+from sheet_nav import get_browser_sheets, get_current_sheet
+from slantisui import ui
+
+from pyrevit import revit, script
+import traceback
+
+doc  = revit.doc
+uidoc = revit.uidoc
+
+try:
+    sheets = get_browser_sheets(doc)
+
+    if not sheets:
+        ui.alert("No sheets found in the model.", title="Previous Sheet")
+        script.exit()
+
+    current_sheet = get_current_sheet(doc, uidoc)
+
+    if current_sheet is None:
+        ui.alert("Active view is not placed on any sheet.", title="Previous Sheet")
+        script.exit()
+
+    current_idx = next(
+        (i for i, s in enumerate(sheets) if s.Id == current_sheet.Id), -1
+    )
+
+    if current_idx == -1:
+        # Current sheet is not in the browser-visible list (filtered out).
+        # Land on the last sheet in the visible list.
+        uidoc.RequestViewChange(sheets[-1])
+        script.exit()
+
+    prev_sheet = sheets[(current_idx - 1) % len(sheets)]
+    uidoc.RequestViewChange(prev_sheet)
+
+except Exception:
+    traceback.print_exc()

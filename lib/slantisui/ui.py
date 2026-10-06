@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""slantisui.ui - /slantis light-brand WPF theme (MT Brand Lab).
+"""slantisui.ui - /slantis light-brand WPF theme.
 
 A FAITHFUL rendering of the Claude Design handoff, folded into a single library.
 Every tool builds its window with ui.parse()/ui.show() and INHERITS the chrome
@@ -27,7 +27,7 @@ by TargetType -- already injected into Window.Resources):
 
 ALWAYS pass multiselect= to pick_list(). It defaults to True and then hands back
 a LIST: a pick-one caller that omits it compares a string to a list forever after
-and dies quietly. check_port.py fails the build over this.
+and dies quietly.
 
 Layout (the handoff's shared window anatomy):
     +-----------------------------------------+
@@ -962,7 +962,7 @@ def styles_xaml():
 
     A pyRevit dockable pane is a Page, not a Window, so it cannot go through
     build()/parse(); without this it would have to hand-copy the palette (the
-    4-copies debt in Design System/BACKLOG.md). Merge it instead:
+    4-copies debt). Merge it instead:
 
         rd = XamlReader.Parse('<ResourceDictionary xmlns="...">'
                               + ui.styles_xaml() + '</ResourceDictionary>')
@@ -1009,9 +1009,15 @@ def _wire_chrome(win, title, resizable):
     """Wire up the custom title bar: drag, min/max/close, double click.
 
     Without the Windows frame the window loses native dragging and snapping: we
-    give them back with DragMove + WindowChrome (which also makes maximizing
-    respect the taskbar). If WindowChrome is unavailable it degrades to a
-    frameless but working window.
+    give them back with DragMove + WindowChrome. If WindowChrome is unavailable
+    it degrades to a frameless but working window.
+
+    WindowChrome does NOT make maximizing respect the taskbar (measured
+    2026-10-01): a WindowStyle=None window maximizes to the whole monitor plus
+    a resize-border overhang on every side, so the footer ended up 61 px under
+    a 72 px taskbar and Apply/Close were hidden. _fit_work_area pads the
+    content back inside the monitor's work area on every maximize, however it
+    was triggered (button, double click, Win+Up, dragging to the top edge).
     """
     bar = win.FindName("__slui_bar__")
     if bar is None:
@@ -1037,13 +1043,50 @@ def _wire_chrome(win, title, resizable):
 
     btn_max = win.FindName("__slui_max__")
 
+    def _apply_fit():
+        root = win.Content
+        if root is None:
+            return
+        from System.Windows import Thickness
+        if win.WindowState != WindowState.Maximized:
+            root.Margin = Thickness(0)
+            return
+        try:
+            clr.AddReference("System.Windows.Forms")
+            from System.Windows.Forms import Screen
+            from System.Windows.Interop import WindowInteropHelper
+            from System.Windows import Point, PresentationSource
+            wa = Screen.FromHandle(WindowInteropHelper(win).Handle).WorkingArea
+            tl = win.PointToScreen(Point(0, 0))               # device px
+            br = win.PointToScreen(Point(win.ActualWidth, win.ActualHeight))
+            m = PresentationSource.FromVisual(win).CompositionTarget.TransformFromDevice
+            sx, sy = m.M11, m.M22                              # px -> DIP
+            root.Margin = Thickness(max(0.0, (wa.Left - tl.X) * sx),
+                                    max(0.0, (wa.Top - tl.Y) * sy),
+                                    max(0.0, (br.X - wa.Right) * sx),
+                                    max(0.0, (br.Y - wa.Bottom) * sy))
+        except Exception:
+            pass
+
+    def _fit_work_area(s=None, e=None):
+        # Measure after the maximized layout lands, not inside StateChanged.
+        try:
+            from System import Action
+            from System.Windows.Threading import DispatcherPriority
+            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, Action(_apply_fit))
+        except Exception:
+            _apply_fit()
+
+    win.StateChanged += _fit_work_area
+    win.Loaded += _fit_work_area      # a window that opens already maximized
+
     def _toggle_max(s=None, e=None):
         if win.WindowState == WindowState.Maximized:
             win.WindowState = WindowState.Normal
-            btn_max.Content = u""   # MDL2 maximizar
+            btn_max.Content = u""   # MDL2 maximize
         else:
             win.WindowState = WindowState.Maximized
-            btn_max.Content = u""   # MDL2 restaurar
+            btn_max.Content = u""   # MDL2 restore
 
     def _on_bar_down(s, e):
         if e.ClickCount == 2 and resizable:
