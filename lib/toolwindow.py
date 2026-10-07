@@ -61,6 +61,7 @@ from pyrevit import HOST_APP
 import favorites
 import toolinfo
 import toolpane
+import usage
 from slantisui import ui
 
 
@@ -186,10 +187,22 @@ BODY = """
   </Grid>
 """
 
+# The usage data switch sits in front of the count, always in the same place
+# (lib/usage.py wires it). Two columns, so a long count is cut short instead of
+# running under the buttons.
 FOOTER = """
   <Grid>
-    <TextBlock x:Name="lblCount" VerticalAlignment="Center" FontSize="11"/>
-    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="*"/>
+      <ColumnDefinition Width="Auto"/>
+    </Grid.ColumnDefinitions>
+    <DockPanel VerticalAlignment="Center" Margin="0,0,12,0">
+      <CheckBox x:Name="chkUsage" DockPanel.Dock="Left" FontSize="11"
+                Margin="0,0,14,0" VerticalAlignment="Center"/>
+      <TextBlock x:Name="lblCount" VerticalAlignment="Center" FontSize="11"
+                 TextTrimming="CharacterEllipsis"/>
+    </DockPanel>
+    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
       <StackPanel x:Name="footerActions" Orientation="Horizontal"/>
       <Button x:Name="btnDetails" Content="Hide details" MinWidth="110"
               Margin="0,0,8,0" Style="{StaticResource BtnGhost}"/>
@@ -406,6 +419,7 @@ class ToolWindow(object):
             heading.Visibility = Visibility.Visible
         self.gallery.on_fav_change = self.info.refresh_star
         find('btnClose').Click += self.on_close_click
+        usage.attach_switch(find('chkUsage'))
         # The window comes back where it was closed. Only when that place is
         # still on a screen: a monitor unplugged since would otherwise park it
         # out of reach, with no way to grab it back.

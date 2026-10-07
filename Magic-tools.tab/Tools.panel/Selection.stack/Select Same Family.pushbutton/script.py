@@ -17,6 +17,7 @@ from System.Collections.Generic import List
 
 from pyrevit import revit, script
 from slantisui import ui
+import usage
 
 def _id_val(eid):
     # ElementId value compat Revit 2022-2026 (IntegerValue removed in 2026)
@@ -65,34 +66,36 @@ def seed_elements():
     return [doc.GetElement(r.ElementId) for r in refs]
 
 
-try:
-    view = doc.ActiveView
-    seeds = [e for e in seed_elements() if e is not None]
-    if not seeds:
-        script.exit()
-
-    keys = set(k for k in (family_key(e) for e in seeds) if k is not None)
-    if not keys:
-        ui.alert("None of the selected elements belongs to a family "
-                 "(elements with no type at all, like a curtain grid "
-                 "line, do not).", title=TITLE)
-        script.exit()
-
-    found = []
-    for e in (FilteredElementCollector(doc, view.Id)
-              .WhereElementIsNotElementType()):
-        if family_key(e) in keys:
-            found.append(e.Id)
-
-    if not found:
-        ui.alert("No element of that family is visible in this view.",
-                 title=TITLE)
-        script.exit()
-    uidoc.Selection.SetElementIds(List[ElementId](found))
-except Exception as ex:
-    traceback.print_exc()
+with usage.tool_run(__file__) as run:
     try:
-        ui.alert("Select Same Family ran into an error:\n{}".format(ex),
-                 title=TITLE)
-    except Exception:
-        pass
+        view = doc.ActiveView
+        seeds = [e for e in seed_elements() if e is not None]
+        if not seeds:
+            script.exit()
+
+        keys = set(k for k in (family_key(e) for e in seeds) if k is not None)
+        if not keys:
+            ui.alert("None of the selected elements belongs to a family "
+                     "(elements with no type at all, like a curtain grid "
+                     "line, do not).", title=TITLE)
+            script.exit()
+
+        found = []
+        for e in (FilteredElementCollector(doc, view.Id)
+                  .WhereElementIsNotElementType()):
+            if family_key(e) in keys:
+                found.append(e.Id)
+
+        if not found:
+            ui.alert("No element of that family is visible in this view.",
+                     title=TITLE)
+            script.exit()
+        uidoc.Selection.SetElementIds(List[ElementId](found))
+    except Exception as ex:
+        run.error()
+        traceback.print_exc()
+        try:
+            ui.alert("Select Same Family ran into an error:\n{}".format(ex),
+                     title=TITLE)
+        except Exception:
+            pass

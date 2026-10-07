@@ -37,6 +37,7 @@ from Autodesk.Revit.UI.Selection import ObjectType
 
 from slantisui import ui
 import modeless
+import usage
 from pyrevit import script
 
 def _id_val(eid):
@@ -967,17 +968,19 @@ def get_target_element():
     return doc.GetElement(ref.ElementId)
 
 
-try:
-    if modeless.focus(TITLE):
-        script.exit()
-    if uidoc is None:
-        ui.alert('No active document.', title='Inspect Element Graphics')
-    elif doc.ActiveView is None:
-        ui.alert('No active view.', title='Inspect Element Graphics')
-    else:
-        target = get_target_element()
-        if target is not None:
-            show_inspector(target, doc.ActiveView)
-except Exception:
-    ui.alert('Inspect Element error:\n\n' + traceback.format_exc(),
-             title='Inspect Element -- Error')
+with usage.tool_run(__file__) as run:
+    try:
+        if modeless.focus(TITLE):
+            script.exit()
+        if uidoc is None:
+            ui.alert('No active document.', title='Inspect Element Graphics')
+        elif doc.ActiveView is None:
+            ui.alert('No active view.', title='Inspect Element Graphics')
+        else:
+            target = get_target_element()
+            if target is not None:
+                show_inspector(target, doc.ActiveView)
+    except Exception:
+        run.error()
+        ui.alert('Inspect Element error:\n\n' + traceback.format_exc(),
+                 title='Inspect Element -- Error')

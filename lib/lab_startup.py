@@ -12,6 +12,10 @@ What it does, once, on the first Idling after the load:
   2. favbar.hide_strays()    any panel of the tab that is not Tools/Favorites
   3. favbar.sync()           the veil: the starred buttons of Favorites shown,
                              every other one hidden (Tools is never touched)
+  4. telemetry.startup()     only for a user who opted in to usage data: the
+                             day's heartbeat and whatever is left to send, on a
+                             background thread (lib/telemetry.py). Never the
+                             prompt: that waits for the first click of a tool
 
 and then, staying subscribed for SETTLE_IDLES more Idlings, favbar.unfold(): Revit may
 fold the Favorites panel into a drop-down AFTER that first pass, once it lays
@@ -36,6 +40,11 @@ from pyrevit import HOST_APP
 
 import favbar
 import toolpane
+
+try:
+    import telemetry
+except Exception:   # usage data must never cost the boot its other steps
+    telemetry = None
 
 
 def _revit():
@@ -66,6 +75,13 @@ def _host(member):
         if candidate is not None and hasattr(candidate, member):
             return candidate
     return None
+
+
+def _usage_data(uiapp):
+    """The versions are read here, on the UI thread, from the UIApplication
+    Idling hands over; the sending happens on telemetry's own thread."""
+    if telemetry is not None and telemetry.is_enabled():
+        telemetry.startup(telemetry.collect_info(uiapp))
 
 
 SETTLE_IDLES = 6
@@ -101,7 +117,8 @@ def _first_idle(sender, args):
     # anything below is handed: never HOST_APP.uiapp (toolpane.run_command).
     jobs = [("arm the launcher", lambda: toolpane.arm()),
             ("hide stray panels", lambda: favbar.hide_strays(sender)),
-            ("veil the Favorites panel", lambda: favbar.sync(sender))]
+            ("veil the Favorites panel", lambda: favbar.sync(sender)),
+            ("send usage data", lambda: _usage_data(sender))]
     for label, job in jobs:
         try:
             job()

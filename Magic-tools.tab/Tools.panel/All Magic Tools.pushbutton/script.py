@@ -25,9 +25,12 @@ import traceback
 
 import toolpane
 import toolwindow
+import usage
 
 
-try:
-    toolwindow.open_window(toolpane.AllTools)
-except Exception:
-    traceback.print_exc()
+with usage.tool_run(__file__) as run:
+    try:
+        toolwindow.open_window(toolpane.AllTools)
+    except Exception:
+        run.error()
+        traceback.print_exc()

@@ -19,6 +19,7 @@ import traceback
 from pyrevit import EXEC_PARAMS
 
 import inspectmodel
+import usage
 
 # The tool this one chains into (its "Inspect view" button): same panel, one
 # folder over. Resolved here, from this bundle's own path, so each copy of the
@@ -29,7 +30,9 @@ except Exception:
     _HERE = os.path.dirname(os.path.abspath(__file__))
 INSPECT_VIEW_BUNDLE = os.path.join(os.path.dirname(_HERE), "Inspect View Overrides.pushbutton")
 
-try:
-    inspectmodel.open_window(INSPECT_VIEW_BUNDLE)
-except Exception:
-    traceback.print_exc()
+with usage.tool_run(__file__) as run:
+    try:
+        inspectmodel.open_window(INSPECT_VIEW_BUNDLE)
+    except Exception:
+        run.error()
+        traceback.print_exc()

@@ -21,6 +21,7 @@ from pyrevit import script
 
 from slantisui import ui
 import modeless
+import usage
 import hostecho
 import vgrow
 # This tool runs on a persistent engine (see __persistentengine__ above), so
@@ -1082,46 +1083,48 @@ def _show_error(stage, ex):
         pass
 
 
-try:
-    # Second click on the button: bring the open window to the front, build
-    # nothing (no collectors, no new window) -- as long as it is looking at
-    # the view you are in. Built for another view (you navigated, or Inspect
-    # Model handed you one, 2026-09-15), it is closed and rebuilt: its
-    # subtitle and rows belong to the old view, and the actions that read
-    # doc.ActiveView would act on the wrong one. The window remembers its
-    # view in Tag (set in InspectViewForm.__init__, kept in step by _rebind).
-    _live = modeless.live(TITLE)
-    if _live is not None:
-        _here = doc.ActiveView
-        if _here is not None and getattr(_live, 'Tag', None) == _id_val(_here.Id):
-            modeless.focus(TITLE)
-            script.exit()
-        modeless.close(TITLE)
+with usage.tool_run(__file__) as run:
+    try:
+        # Second click on the button: bring the open window to the front, build
+        # nothing (no collectors, no new window) -- as long as it is looking at
+        # the view you are in. Built for another view (you navigated, or Inspect
+        # Model handed you one, 2026-09-15), it is closed and rebuilt: its
+        # subtitle and rows belong to the old view, and the actions that read
+        # doc.ActiveView would act on the wrong one. The window remembers its
+        # view in Tag (set in InspectViewForm.__init__, kept in step by _rebind).
+        _live = modeless.live(TITLE)
+        if _live is not None:
+            _here = doc.ActiveView
+            if _here is not None and getattr(_live, 'Tag', None) == _id_val(_here.Id):
+                modeless.focus(TITLE)
+                script.exit()
+            modeless.close(TITLE)
 
-    if uidoc is None:
-        ui.alert(u'No active document. Open a project first.',
-                 title=TITLE)
-    elif doc.ActiveView is None:
-        ui.alert(u'No active view.', title=TITLE)
-    else:
-        try:
-            form = InspectViewForm()
-        except Exception as ex_init:
-            _show_error('form construction', ex_init)
-            raise
-
-        if not form._all_rows:
-            ui.alert(
-                (u'No element-level overrides or hidden elements found in '
-                 u'view "{}".\n\n'
-                 u'This tool only inspects:\n'
-                 u'  - Overrides set via Override Graphics in View > By Element\n'
-                 u'  - Elements hidden via Hide in View > Element\n\n'
-                 u'Category overrides (V/G), filter overrides, category-hide '
-                 u'and worksharing display overrides are NOT shown here.').format(
-                    doc.ActiveView.Name),
-                title=TITLE)
+        if uidoc is None:
+            ui.alert(u'No active document. Open a project first.',
+                     title=TITLE)
+        elif doc.ActiveView is None:
+            ui.alert(u'No active view.', title=TITLE)
         else:
-            form.show()
-except Exception as ex_main:
-    _show_error('main', ex_main)
+            try:
+                form = InspectViewForm()
+            except Exception as ex_init:
+                _show_error('form construction', ex_init)
+                raise
+
+            if not form._all_rows:
+                ui.alert(
+                    (u'No element-level overrides or hidden elements found in '
+                     u'view "{}".\n\n'
+                     u'This tool only inspects:\n'
+                     u'  - Overrides set via Override Graphics in View > By Element\n'
+                     u'  - Elements hidden via Hide in View > Element\n\n'
+                     u'Category overrides (V/G), filter overrides, category-hide '
+                     u'and worksharing display overrides are NOT shown here.').format(
+                        doc.ActiveView.Name),
+                    title=TITLE)
+            else:
+                form.show()
+    except Exception as ex_main:
+        run.error()
+        _show_error('main', ex_main)

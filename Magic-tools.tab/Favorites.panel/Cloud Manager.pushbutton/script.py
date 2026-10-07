@@ -36,6 +36,7 @@ from System.ComponentModel import INotifyPropertyChanged, PropertyChangedEventAr
 # The whole look of the four windows comes from here. This script declares no
 # style, no hex, no font and no window chrome of its own.
 from slantisui import ui
+import usage
 
 doc   = revit.doc
 uidoc = revit.uidoc
@@ -3348,41 +3349,42 @@ class ActionPanel(object):
 # ============================================================
 #  Main wizard loop
 # ============================================================
-step = 1
-while True:
-    if step == 1:
-        # WPF window. Next is disabled while nothing is checked, so the
-        # legacy "nothing selected" MessageBox is no longer reachable.
-        dlg = CloudPanel(doc, uidoc)
-        dlg.ShowDialog()
-        if dlg.result_code != ACTION_NEXT: script.exit()
-        STATE.selected_clouds = dlg.selected_clouds
-        step = 2
+with usage.tool_run(__file__) as run:
+    step = 1
+    while True:
+        if step == 1:
+            # WPF window. Next is disabled while nothing is checked, so the
+            # legacy "nothing selected" MessageBox is no longer reachable.
+            dlg = CloudPanel(doc, uidoc)
+            dlg.ShowDialog()
+            if dlg.result_code != ACTION_NEXT: script.exit()
+            STATE.selected_clouds = dlg.selected_clouds
+            step = 2
 
-    if step == 2:
-        dlg2 = ScopePanel(STATE.selected_clouds)
-        dlg2.ShowDialog()
-        if dlg2.result_code == ACTION_EXIT: script.exit()
-        if dlg2.result_code == ACTION_BACK: step = 1; continue
-        views = dlg2.selected_views
-        if not views:
-            ui.alert(u"Pick at least one view before continuing.",
-                     title=u"No Views Selected")
-            continue
-        STATE.selected_views = views
-        # Pass ALL selected clouds to the ActionPanel.
-        # Previously this used a view-based FilteredElementCollector to filter
-        # to "visible" clouds only, but that collector skips hidden elements --
-        # which is exactly the wrong behaviour when the user wants to *show*
-        # clouds that are currently hidden.  The user already chose which clouds
-        # to act on in Step 1, so we honour that selection in full.
-        STATE.scoped_clouds = list(STATE.selected_clouds)
-        step = 3
+        if step == 2:
+            dlg2 = ScopePanel(STATE.selected_clouds)
+            dlg2.ShowDialog()
+            if dlg2.result_code == ACTION_EXIT: script.exit()
+            if dlg2.result_code == ACTION_BACK: step = 1; continue
+            views = dlg2.selected_views
+            if not views:
+                ui.alert(u"Pick at least one view before continuing.",
+                         title=u"No Views Selected")
+                continue
+            STATE.selected_views = views
+            # Pass ALL selected clouds to the ActionPanel.
+            # Previously this used a view-based FilteredElementCollector to filter
+            # to "visible" clouds only, but that collector skips hidden elements --
+            # which is exactly the wrong behaviour when the user wants to *show*
+            # clouds that are currently hidden.  The user already chose which clouds
+            # to act on in Step 1, so we honour that selection in full.
+            STATE.scoped_clouds = list(STATE.selected_clouds)
+            step = 3
 
-    if step == 3:
-        dlg3 = ActionPanel(STATE.scoped_clouds, STATE.selected_views)
-        dlg3.ShowDialog()
-        code = dlg3.result_code
-        if code == ACTION_BACK:    step = 2; continue
-        if code == ACTION_RESTART: step = 1; continue
-        break
+        if step == 3:
+            dlg3 = ActionPanel(STATE.scoped_clouds, STATE.selected_views)
+            dlg3.ShowDialog()
+            code = dlg3.result_code
+            if code == ACTION_BACK:    step = 2; continue
+            if code == ACTION_RESTART: step = 1; continue
+            break

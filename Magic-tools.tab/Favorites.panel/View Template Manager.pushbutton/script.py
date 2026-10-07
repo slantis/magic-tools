@@ -21,13 +21,16 @@ __persistentengine__ = True
 import traceback
 
 import vtm
+import usage
 
-try:
-    vtm.open_window()
-except Exception:
-    traceback.print_exc()
+with usage.tool_run(__file__) as run:
     try:
-        from slantisui import ui
-        ui.alert(traceback.format_exc(), title=u"View Template Manager - Error")
+        vtm.open_window()
     except Exception:
-        pass
+        run.error()
+        traceback.print_exc()
+        try:
+            from slantisui import ui
+            ui.alert(traceback.format_exc(), title=u"View Template Manager - Error")
+        except Exception:
+            pass

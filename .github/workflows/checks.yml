@@ -8,9 +8,12 @@ name: Checks
 #   compile    every .py compiles on Python 2.7 and pyflakes finds no
 #              undefined names
 #   policy     the unit tests of the checks, then the rules that keep risky
-#              code (network, processes, telemetry) out of the extension
+#              code (network, processes) out of the extension; only
+#              lib/telemetry.py may reach the network, and only the two
+#              endpoints .github/policy/policy.json lists
 #   structure  the pyRevit layout: bundles, buttons, icons, extension.json
-#   secrets    gitleaks over the whole git history
+#   secrets    gitleaks over the whole git history (default rules, plus the
+#              allowlist in .github/gitleaks.toml)
 #   language   code, comments and UI text are in English
 #
 # Python runs in the python:2.7 image, the same grammar as the IronPython 2.7
@@ -117,18 +120,22 @@ jobs:
           persist-credentials: false
 
       # Only the history is mounted, read-only, and nothing else of the
-      # checkout. A pull request controls the work tree, and from there it
+      # checkout but the config below. A pull request controls the work tree, and from there it
       # could switch the scan off: gitleaks loads /repo/.gitleaks.toml and
       # /repo/.gitleaksignore when they exist, and a .gitattributes line such
       # as "*.txt -diff" makes git print no text diff for those files. None of
       # these exists next to a bare .git. --ignore-gitleaks-allow makes a
       # "gitleaks:allow" comment in the code unable to hide a finding too.
-      # A rule set or an allowlist of our own would live under .github/ (it
-      # needs a code owner's review) and be mounted with --config.
+      # Our own allowlist lives under .github/ (it needs a code owner's
+      # review) and is mounted on its own, read-only, with --config: it
+      # keeps the default rules and allows only the public token of the
+      # usage data client (lib/telemetry.py).
       - name: Scan the git history with gitleaks
         run: |
-          docker run --rm -v "$PWD/.git:/repo/.git:ro" "$GITLEAKS_IMAGE" \
-            git /repo --redact --no-banner -v --ignore-gitleaks-allow
+          docker run --rm -v "$PWD/.git:/repo/.git:ro" \
+            -v "$PWD/.github/gitleaks.toml:/config/gitleaks.toml:ro" "$GITLEAKS_IMAGE" \
+            git /repo --config /config/gitleaks.toml --redact --no-banner -v \
+            --ignore-gitleaks-allow
 
   language:
     runs-on: ubuntu-latest

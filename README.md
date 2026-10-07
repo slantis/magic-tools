@@ -104,7 +104,8 @@ delete it before you install a new one.
 Every change comes in through a pull request. These checks run on each one:
 
 - **Compile:** Python 2.7 syntax and undefined names (pyRevit runs IronPython 2.7).
-- **Policy:** no network access, processes, dynamic code, native library loading, registry
+- **Policy:** no network access (except `lib/telemetry.py`, which sends the opt-in usage
+  data to its two endpoints), processes, dynamic code, native library loading, registry
   access or hidden payloads, and only allowed file types.
 - **Structure:** each tool has its `script.py`, four icons, a title and a tooltip, and is
   listed in its `bundle.yaml`; each Favorites tool is also listed in `lib/groups.json`.
@@ -116,10 +117,20 @@ Revit.
 
 ## What we measure
 
-We only use the aggregate numbers GitHub already reports for this repository: git
-clones, page views, the sites that link here, the most viewed pages, release ZIP
-downloads, and stars, forks and watchers. None of them identifies anyone. A scheduled
-GitHub Action saves them once a day. The add-in itself sends nothing.
+From GitHub, the aggregate numbers it already reports for this repository: git clones,
+page views, the sites that link here, the most viewed pages, release ZIP downloads, and
+stars, forks and watchers. None of them identifies anyone. A scheduled GitHub Action saves
+them once a day.
+
+From the add-in, **only if you say yes**: the first time you click a Magic Tools button,
+it asks whether you want to share usage data. If you do, it sends a random install ID, the
+Magic Tools, Revit and pyRevit versions, how it was installed (git or ZIP), and the name,
+result and time of each tool you run. Never your name, your computer's name, file or
+model names, or paths. The install ID stays the same, so this data is pseudonymous, not
+anonymous. Turn it off at any time with **Share usage data** at the bottom of All Magic
+Tools, or for a whole office with the `DO_NOT_TRACK=1` or `MAGIC_TOOLS_TELEMETRY=0`
+environment variable. [TELEMETRY.md](TELEMETRY.md) has every field, an example, and the
+details.
 
 ## License
 

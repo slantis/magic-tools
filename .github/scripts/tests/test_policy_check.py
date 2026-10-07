@@ -188,6 +188,23 @@ class PythonRules(unittest.TestCase):
         self.assertIn('network', rules(
             pc.check_python_source('lib/other.py', ok, cfg)))
 
+    def test_telemetry_module_may_reach_each_of_its_urls(self):
+        cfg = dict(CONFIG, telemetry={"module": "lib/telemetry.py",
+                                      "urls": ["https://example.org/a",
+                                               "https://example.org/b"]})
+        ok = ("from System.Net import HttpWebRequest\n"
+              "A = 'https://example.org/a'\nB = 'https://example.org/b'\n")
+        self.assertEqual(pc.check_python_source('lib/telemetry.py', ok, cfg), [])
+        # A prefix of an endpoint is not an endpoint.
+        prefix = "import urllib2\nBASE = 'https://example.org/'\n"
+        self.assertIn('network', rules(
+            pc.check_python_source('lib/telemetry.py', prefix, cfg)))
+        self.assertIn('network', rules(
+            pc.check_python_source('lib/other.py', ok, cfg)))
+        none = dict(CONFIG, telemetry={"module": "lib/telemetry.py", "urls": None})
+        self.assertIn('network', rules(
+            pc.check_python_source('lib/telemetry.py', ok, none)))
+
     def test_import_aliases_are_resolved(self):
         for src, rule in [("import os as o\no.system('x')", 'process'),
                           ("import System as S\nc = S.Net.WebClient()", 'network')]:
@@ -448,14 +465,17 @@ class RepoRules(unittest.TestCase):
         self.write('A.tab/B.panel/X.pushbutton/icon.png', tiny_png())
         self.write('.github/workflows/c.yml', 'on: push\n')
         self.write('.github/CODEOWNERS', '* @someone\n')
+        self.write('.github/gitleaks.toml', '[extend]\nuseDefault = true\n')
         self.assertEqual(self.check(), [])
 
     def test_disallowed_extensions(self):
-        for rel in ['lib/run.bat', 'lib/a.dll', 'lib/a.cs', 'x.yml', '.github/a.exe']:
+        for rel in ['lib/run.bat', 'lib/a.dll', 'lib/a.cs', 'x.yml', '.github/a.exe',
+                    'lib/a.toml']:
             self.write(rel, 'x')
         found = self.check()
         self.assertEqual(sorted(f.path for f in found if f.rule == 'file-type'),
-                         ['.github/a.exe', 'lib/a.cs', 'lib/a.dll', 'lib/run.bat', 'x.yml'])
+                         ['.github/a.exe', 'lib/a.cs', 'lib/a.dll', 'lib/a.toml',
+                          'lib/run.bat', 'x.yml'])
 
     def test_font_hashes(self):
         data = b'\x00\x01\x00\x00font'
