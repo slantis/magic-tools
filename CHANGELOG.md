@@ -5,6 +5,12 @@ All notable changes to Magic Tools are listed here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- New README with a header, a picture of the ribbon and the mascot on each section; the
+  images live in `.github/readme/` and stay out of the release ZIP. The policy check takes
+  PNG and GIF there, each one checked to be a well-formed image.
+
 ## [0.2.1] - 2026-10-07
 
 ### Changed
