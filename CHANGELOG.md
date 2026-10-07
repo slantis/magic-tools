@@ -5,6 +5,8 @@ All notable changes to Magic Tools are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-07
+
 ### Added
 
 - **Usage data, only if you say yes.** The first click of any tool asks once whether to
@@ -14,8 +16,8 @@ All notable changes to Magic Tools are listed here. The format follows
   bottom of All Magic Tools turns it off (and deletes the install ID and anything not sent
   yet) or back on; `DO_NOT_TRACK=1` or `MAGIC_TOOLS_TELEMETRY=0` turns it off for a whole
   computer or office. See [TELEMETRY.md](TELEMETRY.md).
-- `extension.json` has a `version`, the one the usage data reports. Raise it with each
-  release.
+- `extension.json` has a `version` (0.2.0), the one the usage data reports. Raise it with
+  each release.
 
 ### Changed
 
@@ -63,5 +65,6 @@ Select Same Family was already in 0.0.1; the other 15 tools are new.
   pyRevit loads extensions from: update or delete an older one before installing a new one,
   or every tool shows twice.
 
-[Unreleased]: https://github.com/slantis/magic-tools/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/slantis/magic-tools/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/slantis/magic-tools/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/slantis/magic-tools/compare/v0.0.1...v0.1.0
