@@ -76,8 +76,9 @@ like this:
 
 The install ID is random, but it stays the same from one Revit session to the next, so the
 events of one installation can be linked to each other. And, as with any request on the
-internet, the server sees the IP address your computer sends it from. That makes the data
-pseudonymous rather than anonymous. Turning usage data off deletes the install ID, so
+internet, the server sees the IP address your computer sends it from. It uses the address
+only to limit how many requests one sender can make, and does not store it. Even so, the
+data is pseudonymous rather than anonymous. Turning usage data off deletes the install ID, so
 anything sent after you turn it on again cannot be linked to what was sent before.
 
 ## When it is sent
