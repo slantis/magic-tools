@@ -8,7 +8,9 @@ starts processes, runs dynamic code, loads native code, touches the
 registry, hides a payload in a string or star-imports names out of sight.
 
 The .github/ folder (config['tooling_dirs']) only gets the file type and
-parse checks: the CI scripts there legitimately use the network.
+parse checks: the CI scripts there legitimately use the network. Its readme/
+folder also takes the README images, PNG and GIF only, each one checked to be
+a well-formed image of at most config['readme_image_max_bytes'].
 
 Usage:
     python .github/scripts/policy_check.py --root . [--config FILE]
@@ -59,6 +61,10 @@ EXTENSION_SUFFIXES = ('.py', '.xaml', '.yaml', '.json', '.png', '.svg', '.ttf', 
 EXTENSION_NAMES = ('LICENSE', 'LICENSE-CONTENT', '.gitattributes', '.gitignore')
 TOOLING_SUFFIXES = ('.yml', '.yaml', '.py', '.md', '.json', '.txt', '.toml')
 TOOLING_NAMES = ('CODEOWNERS',)
+README_IMAGES_DIR = '.github/readme/'
+README_IMAGE_SUFFIXES = ('.png', '.gif')
+README_IMAGE_MAX_BYTES = 524288
+GIF_SIGNATURES = (b'GIF87a', b'GIF89a')
 
 TEXT_SNIFF_BYTES = 8192
 PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
@@ -605,7 +611,14 @@ def _is_tooling(relpath, config):
     return any(relpath.startswith(folder) for folder in config['tooling_dirs'])
 
 
+def _is_readme_image(relpath):
+    return (relpath.startswith(README_IMAGES_DIR)
+            and relpath.lower().endswith(README_IMAGE_SUFFIXES))
+
+
 def _allowed_type(relpath, tooling):
+    if tooling and _is_readme_image(relpath):
+        return True
     name = relpath.rsplit('/', 1)[-1]
     suffixes, names = ((TOOLING_SUFFIXES, TOOLING_NAMES) if tooling
                        else (EXTENSION_SUFFIXES, EXTENSION_NAMES))
@@ -629,6 +642,27 @@ def _parse_problem(relpath, text):
 def _read_bytes(path):
     with open(path, 'rb') as fh:
         return fh.read()
+
+
+def _gif_problem(data, max_bytes):
+    """A GIF header, and the trailer byte as the last one: nothing appended."""
+    if len(data) > max_bytes:
+        return u'GIF is larger than {0} bytes'.format(max_bytes)
+    if not data.startswith(GIF_SIGNATURES):
+        return u'not a GIF file'
+    if not data.endswith(b'\x3b'):
+        return u'GIF does not end with its trailer'
+    return None
+
+
+def _check_readme_image(path, relpath, config):
+    data = _read_bytes(path)
+    limit = config.get('readme_image_max_bytes', README_IMAGE_MAX_BYTES)
+    if relpath.lower().endswith('.png'):
+        problem = _png_problem(data, limit)
+    else:
+        problem = _gif_problem(data, limit)
+    return [Finding(relpath, 0, 'binary', problem)] if problem else []
 
 
 def _check_tooling_file(path, relpath):
@@ -689,6 +723,8 @@ def _check_file(root, relpath, config, symlinks):
     if not _allowed_type(relpath, tooling):
         where = u'.github/' if tooling else u'the extension'
         return [Finding(relpath, 0, 'file-type', u'file type not allowed in {0}'.format(where))]
+    if tooling and _is_readme_image(relpath):
+        return _check_readme_image(path, relpath, config)
     if tooling:
         return _check_tooling_file(path, relpath)
     return _check_extension_file(path, relpath, config)

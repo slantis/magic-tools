@@ -495,6 +495,27 @@ class RepoRules(unittest.TestCase):
         self.write('a.png', b'not a png at all')
         self.assertIn('binary', rules(self.check()))
 
+    def test_readme_images(self):
+        gif = b'GIF89a' + b'\x01\x00\x01\x00\x00\x00\x00' + b'\x3b'
+        self.write('.github/readme/a.png', tiny_png())
+        self.write('.github/readme/b.gif', gif)
+        self.assertEqual(self.check(), [])
+        self.write('.github/readme/b.gif', gif + b'MZ\x90\x00')
+        self.assertIn('binary', rules(self.check()))
+        self.write('.github/readme/b.gif', b'not a gif')
+        self.assertIn('binary', rules(self.check()))
+        self.write('.github/readme/b.gif', gif)
+        self.assertIn('binary', rules(self.check(dict(CONFIG, readme_image_max_bytes=5))))
+
+    def test_readme_images_only_in_their_folder(self):
+        for rel in ['.github/a.png', '.github/scripts/b.gif', 'lib/c.gif',
+                    '.github/readme/d.exe']:
+            self.write(rel, 'x')
+        found = self.check()
+        self.assertEqual(sorted(f.path for f in found if f.rule == 'file-type'),
+                         ['.github/a.png', '.github/readme/d.exe', '.github/scripts/b.gif',
+                          'lib/c.gif'])
+
     def test_binary_inside_a_text_file(self):
         self.write('lib/a.txt', b'abc\x00def')
         self.assertIn('binary', rules(self.check()))

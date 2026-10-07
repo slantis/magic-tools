@@ -1,4 +1,16 @@
-# Magic Tools
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/readme/header-dark.gif">
+    <img alt="Magic Tools by /slantis: open source pyRevit tools for Autodesk Revit" src=".github/readme/header-light.gif" width="100%">
+  </picture>
+</p>
+
+<p align="center">
+  <a href="https://github.com/slantis/magic-tools/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/slantis/magic-tools?color=E3571C"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <img alt="Revit 2022 or later" src="https://img.shields.io/badge/Revit-2022%2B-186BFF">
+  <a href="https://github.com/pyrevitlabs/pyRevit"><img alt="Built on pyRevit" src="https://img.shields.io/badge/built%20on-pyRevit-555"></a>
+</p>
 
 Open source [pyRevit](https://github.com/pyrevitlabs/pyRevit) tools for Autodesk Revit,
 made by [/slantis](https://github.com/slantis).
@@ -7,9 +19,22 @@ made by [/slantis](https://github.com/slantis).
 **All Magic Tools**, a searchable window for the ten Favorites tools: star the ones you
 want on the ribbon. Requires pyRevit and Revit 2022 or later.
 
+**Quick install**, with pyRevit already installed:
+
+```
+pyrevit extend ui magic-tools https://github.com/slantis/magic-tools.git --branch=main
+```
+
+Then reload pyRevit. More options in [Install](#install).
+
 ## The ribbon
+<img src=".github/readme/mascot/ribbon.png" align="right" height="110" alt="">
 
 Magic Tools adds one tab to the Revit ribbon, **Magic-tools**, with two panels:
+**Tools**, always on the ribbon, and **Favorites**, which shows only the tools you
+starred.
+
+![The Magic-tools tab in Revit, with the Tools panel and a Favorites panel with five starred tools](.github/readme/ribbon.png)
 
 ```
 Magic-tools tab
@@ -21,6 +46,7 @@ Magic-tools tab
 ```
 
 ## Tools
+<img src=".github/readme/mascot/tools.png" align="right" height="110" alt="">
 
 ### Tools panel
 
@@ -63,6 +89,7 @@ unstar any of the ten tools, and the Favorites panel follows. Your stars are sav
 `%APPDATA%\pyRevit\_magictools_os_favorites.json`.
 
 ## Install
+<img src=".github/readme/mascot/install.png" align="right" height="110" alt="">
 
 You need [pyRevit](https://github.com/pyrevitlabs/pyRevit/releases) installed, and Revit
 2022 or later. A new install, with git or with the ZIP, puts Magic Tools in a folder called
@@ -83,7 +110,7 @@ keeps its own folder name and updates in place.
 ### With a ZIP (no automatic updates)
 
 1. Download `magic-tools.zip` from the latest
-   [release](https://github.com/slantis/magic-tools/releases).
+   [release](https://github.com/slantis/magic-tools/releases/latest).
 2. Unzip it into a folder pyRevit loads custom extensions from, for example
    `%APPDATA%\pyRevit\Extensions`. The ZIP holds a single `magic-tools.extension` folder,
    so you end up with `...\Extensions\magic-tools.extension\`.
@@ -99,23 +126,8 @@ folder or any custom extensions path you added in pyRevit's settings). If you al
 another copy, for example `MagicTools.extension` from the first release, update it or
 delete it before you install a new one.
 
-## Contributing
-
-Every change comes in through a pull request. These checks run on each one:
-
-- **Compile:** Python 2.7 syntax and undefined names (pyRevit runs IronPython 2.7).
-- **Policy:** no network access (except `lib/telemetry.py`, which sends the opt-in usage
-  data to its one endpoint), processes, dynamic code, native library loading, registry
-  access or hidden payloads, and only allowed file types.
-- **Structure:** each tool has its `script.py`, four icons, a title and a tooltip, and is
-  listed in its `bundle.yaml`; each Favorites tool is also listed in `lib/groups.json`.
-- **Secrets:** a [gitleaks](https://github.com/gitleaks/gitleaks) scan.
-- **Language:** everything in the repository is written in English.
-
-The checks cannot open Revit. In your pull request, describe how you tested the change in
-Revit.
-
 ## What we measure
+<img src=".github/readme/mascot/telemetry.png" align="right" height="110" alt="">
 
 From GitHub, the aggregate numbers it already reports for this repository: git clones,
 page views, the sites that link here, the most viewed pages, release ZIP downloads, and
@@ -132,8 +144,39 @@ Tools, or for a whole office with the `DO_NOT_TRACK=1` or `MAGIC_TOOLS_TELEMETRY
 environment variable. [TELEMETRY.md](TELEMETRY.md) has every field, an example, and the
 details.
 
+## Found a bug?
+<img src=".github/readme/mascot/bug.png" align="right" height="110" alt="">
+
+[Open an issue](https://github.com/slantis/magic-tools/issues/new/choose) with the tool,
+what happened, and your Magic Tools, Revit and pyRevit versions. The form asks for each
+one. Security issues go through
+[private reporting](https://github.com/slantis/magic-tools/security/advisories/new)
+instead: see [SECURITY.md](.github/SECURITY.md).
+
+## Contributing
+<img src=".github/readme/mascot/contributing.png" align="right" height="110" alt="">
+
+Every change comes in through a pull request. These checks run on each one:
+
+- **Compile:** Python 2.7 syntax and undefined names (pyRevit runs IronPython 2.7).
+- **Policy:** no network access (except `lib/telemetry.py`, which sends the opt-in usage
+  data to its one endpoint), processes, dynamic code, native library loading, registry
+  access or hidden payloads, and only allowed file types.
+- **Structure:** each tool has its `script.py`, four icons, a title and a tooltip, and is
+  listed in its `bundle.yaml`; each Favorites tool is also listed in `lib/groups.json`.
+- **Secrets:** a [gitleaks](https://github.com/gitleaks/gitleaks) scan.
+- **Language:** everything in the repository is written in English.
+
+The checks cannot open Revit. In your pull request, describe how you tested the change in
+Revit.
+
 ## License
 
 - Code: [MIT](LICENSE), Copyright (c) 2026 Slantis LLC.
 - Icons, documentation and the "Magic Tools" name: [CC BY 4.0](LICENSE-CONTENT).
 - DM Sans fonts in `lib/slantisui/fonts/`: [SIL Open Font License 1.1](lib/slantisui/fonts/OFL.txt).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/footer-dark.png">
+  <img alt="Made with a little magic by /slantis" src=".github/readme/footer-light.png" width="100%">
+</picture>
