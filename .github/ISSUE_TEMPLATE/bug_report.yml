@@ -1,0 +1,64 @@
+name: Bug report
+description: A tool does not work as expected, or Magic Tools does not load.
+labels: [bug]
+body:
+  - type: input
+    id: tool
+    attributes:
+      label: Tool
+      description: Which tool, or "loading" if the Magic-tools tab does not appear.
+      placeholder: Print Set Manager
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a model with ...
+        2. Run ...
+        3. See ...
+  - type: textarea
+    id: output
+    attributes:
+      label: Error message
+      description: Paste the pyRevit output window, if one opened. Remove any file paths or project names you do not want to share.
+      render: text
+  - type: input
+    id: magic-tools
+    attributes:
+      label: Magic Tools version
+      description: The "version" in extension.json, or the release you downloaded.
+      placeholder: 0.2.0
+    validations:
+      required: true
+  - type: input
+    id: revit
+    attributes:
+      label: Revit version
+      placeholder: "2025"
+    validations:
+      required: true
+  - type: input
+    id: pyrevit
+    attributes:
+      label: pyRevit version
+      placeholder: "5.0.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you installed it
+      options:
+        - git (pyrevit extend)
+        - ZIP from a release
+    validations:
+      required: true
