@@ -33,8 +33,7 @@ Windows user and applies to every tool.
 | `result` | `ok` | Only on `tool_run`: `ok`, or `error` if the tool failed. |
 | `schema_version` | `1` | The version of this format. |
 
-The installation is registered with `install_id`, `channel` and the three versions. Each
-event then carries the fields above. Opening Revit and running one tool sends something
+Every event carries the fields above; there is nothing else. Opening Revit and running one tool sends something
 like this:
 
 ```json
@@ -83,9 +82,7 @@ anything sent after you turn it on again cannot be linked to what was sent befor
 
 ## When it is sent
 
-- **Registration**, right after you say yes, and again when the Magic Tools, Revit or
-  pyRevit version or the install channel changes.
-- **`install`**, once, after the first registration the server accepts.
+- **`install`**, once, right after you say yes.
 - **`heartbeat`**, at most once per day (UTC), when Revit loads Magic Tools.
 - **`tool_run`**, each time you run a tool, when it finishes. A tool with its own window
   that stays open counts once, when the window opens. A tool you start from All Magic Tools
@@ -93,15 +90,16 @@ anything sent after you turn it on again cannot be linked to what was sent befor
 
 Events wait in a queue on your computer and are sent in the background, so Revit never
 waits for the network. If the server cannot be reached, they are sent later, with
-growing waits between tries (from 30 seconds up to an hour). The queue keeps at most 1000
+growing waits between tries (from 1 minute up to an hour). The queue keeps at most 1000
 events and drops the oldest first.
 
 ## Where it goes
 
-Over HTTPS to two webhooks on a server the maintainers run (`n8n.srv1888016.hstgr.cloud`),
-which store it in their database. It is kept by the maintainers to count installs and tool
-use. `lib/telemetry.py` is the only file of Magic Tools allowed to reach the network, and
-only those two addresses: the repository checks reject any other.
+Over HTTPS to one endpoint the maintainers run on Supabase
+(`ydedbgryazrwxtwzjauo.supabase.co/functions/v1/magic-tools-telemetry`), which stores it
+in their database. No key or token is sent. It is kept by the maintainers to count installs
+and tool use. `lib/telemetry.py` is the only file of Magic Tools allowed to reach the
+network, and only that address: the repository checks reject any other.
 
 ## Turning it off
 

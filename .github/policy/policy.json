@@ -15,8 +15,7 @@
   "telemetry": {
     "module": "lib/telemetry.py",
     "urls": [
-      "https://n8n.srv1888016.hstgr.cloud/webhook/magic-tools-open-source-installation-840d98d2115c62dc5087",
-      "https://n8n.srv1888016.hstgr.cloud/webhook/magic-tools-open-source-activity-log-68we741w8e1f76w8ef4"
+      "https://ydedbgryazrwxtwzjauo.supabase.co/functions/v1/magic-tools-telemetry"
     ]
   },
   "structure": {

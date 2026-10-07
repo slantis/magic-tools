@@ -9,8 +9,8 @@ name: Checks
 #              undefined names
 #   policy     the unit tests of the checks, then the rules that keep risky
 #              code (network, processes) out of the extension; only
-#              lib/telemetry.py may reach the network, and only the two
-#              endpoints .github/policy/policy.json lists
+#              lib/telemetry.py may reach the network, and only the
+#              endpoint .github/policy/policy.json lists
 #   structure  the pyRevit layout: bundles, buttons, icons, extension.json
 #   secrets    gitleaks over the whole git history (default rules, plus the
 #              allowlist in .github/gitleaks.toml)
@@ -128,8 +128,8 @@ jobs:
       # "gitleaks:allow" comment in the code unable to hide a finding too.
       # Our own allowlist lives under .github/ (it needs a code owner's
       # review) and is mounted on its own, read-only, with --config: it
-      # keeps the default rules and allows only the public token of the
-      # usage data client (lib/telemetry.py).
+      # keeps the default rules and allows only the public token that the
+      # usage data client sent up to 0.2.0, still in the history.
       - name: Scan the git history with gitleaks
         run: |
           docker run --rm -v "$PWD/.git:/repo/.git:ro" \

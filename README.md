@@ -105,7 +105,7 @@ Every change comes in through a pull request. These checks run on each one:
 
 - **Compile:** Python 2.7 syntax and undefined names (pyRevit runs IronPython 2.7).
 - **Policy:** no network access (except `lib/telemetry.py`, which sends the opt-in usage
-  data to its two endpoints), processes, dynamic code, native library loading, registry
+  data to its one endpoint), processes, dynamic code, native library loading, registry
   access or hidden payloads, and only allowed file types.
 - **Structure:** each tool has its `script.py`, four icons, a title and a tooltip, and is
   listed in its `bundle.yaml`; each Favorites tool is also listed in `lib/groups.json`.

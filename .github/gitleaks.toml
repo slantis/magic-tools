@@ -2,16 +2,16 @@
 # mounted with --config. Every default rule stays on; this file only adds one
 # allowlist entry.
 #
-# The token below authenticates the opt-in usage data client in
-# lib/telemetry.py. It ships in the open source code on purpose, so it is
-# public and protects nothing (see TELEMETRY.md). When it is rotated, replace
-# it here in the same pull request as in lib/telemetry.py.
+# The token below is the one the usage data client (lib/telemetry.py) sent
+# up to 0.2.0, to the webhooks it used then. It was public on purpose and
+# protects nothing; the client sends no token since 0.2.1, but the token is
+# still in the git history, which this job scans whole.
 
 [extend]
 useDefault = true
 
 [[allowlists]]
-description = "Public token of the usage data client (lib/telemetry.py)"
+description = "Public token of the usage data client up to 0.2.0"
 regexes = [
   '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiJtYWdpYy10b29scy1vcGVuLXNvdXJjZSIsImlhdCI6MTc5MTMxMTcxM30\.51thxorsiPW0aE9qQVJ9DdJ46RW5Nlr1CUtSHvH-pQs''',
 ]

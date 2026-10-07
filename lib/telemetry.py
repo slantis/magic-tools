@@ -8,17 +8,17 @@ and nothing at all while DO_NOT_TRACK or MAGIC_TOOLS_TELEMETRY turns it off
 description of what is sent: keep the two in step.
 
 This is the only module of the extension that reaches the network, and only
-the two endpoints below: .github/policy/policy.json lists the same two URLs
-and the policy check rejects any other. Every request runs on a background
-thread with a 5 s timeout, and every exception is swallowed: nothing here may
-block or break Revit. No Revit API call is made off the UI thread; the
+the endpoint below: .github/policy/policy.json lists the same URL and the
+policy check rejects any other. Every request runs on a background thread
+with a 5 s timeout, and every exception is swallowed: nothing here may block
+or break Revit. No Revit API call is made off the UI thread; the
 versions are read by collect_info(), on the UI thread, and kept in the state.
 
 Per Windows user, in %APPDATA%/pyRevit/magic-tools-telemetry/:
 
-    state.json  the answer to the prompt, the random install ID, the install
-                registration the server last accepted, the UTC day of the last
-                heartbeat, the retry backoff and the versions last read
+    state.json  the answer to the prompt, the random install ID, whether its
+                "install" event was queued, the UTC day of the last heartbeat,
+                the retry backoff and the versions last read
     queue.json  the events waiting to be sent, each with its event_id already
                 assigned, so a retry resends the same one (the server
                 deduplicates on it); at most MAX_QUEUE, the oldest go first
@@ -26,18 +26,14 @@ Per Windows user, in %APPDATA%/pyRevit/magic-tools-telemetry/:
 Both files are rewritten whole, through a temporary file, under a lock that
 every thread and every Revit process of the user shares (_Lock).
 
-The order the server needs: the installation is registered (INSTALL_URL)
-before any event goes out (EVENTS_URL), and registered again whenever the
-add-in, Revit or pyRevit version or the install channel differs from what it
-last accepted. The "install" event is queued once per install ID, after the
-first registration the server accepts.
+Every event goes to the one endpoint, with no credentials: the server creates
+or updates the row of its installation from any event. The "install" event is
+queued once per install ID, first in the queue, when the user says yes.
 
-ADDING A TOOL. The server keeps only the tool_run events whose tool is on its
-whitelist: the folder name of the .pushbutton without the suffix, as
-tool_name() reads it. A new tool needs its name added there by a maintainer
-of the server before it is released, or its runs are dropped:
-
-    insert into "magic-tools-open-source".tools (name) values ('<Tool Name>');
+ADDING A TOOL. The server counts only the tool_run events whose tool is on its
+whitelist (its "tools" table): the folder name of the .pushbutton without the
+suffix, as tool_name() reads it. A new tool needs its name added there by a
+maintainer of the server before it is released, or its runs are not counted.
 """
 import io
 import json
@@ -47,19 +43,16 @@ import sys
 import threading
 import time
 
-# The token is public on purpose: it ships in this open source client, so it
-# identifies the client, it does not protect anything. One constant, so it can
-# be rotated (and the gitleaks allowlist in .github/gitleaks.toml with it).
-INSTALL_URL = "https://n8n.srv1888016.hstgr.cloud/webhook/magic-tools-open-source-installation-840d98d2115c62dc5087"
-EVENTS_URL = "https://n8n.srv1888016.hstgr.cloud/webhook/magic-tools-open-source-activity-log-68we741w8e1f76w8ef4"
-TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJtYWdpYy10b29scy1vcGVuLXNvdXJjZSIsImlhdCI6MTc5MTMxMTcxM30.51thxorsiPW0aE9qQVJ9DdJ46RW5Nlr1CUtSHvH-pQs"
+# Public on purpose, with no key or token: the client is open source, so the
+# server protects itself (validation, rate limits, a maximum body size).
+URL = "https://ydedbgryazrwxtwzjauo.supabase.co/functions/v1/magic-tools-telemetry"
 
 TIMEOUT_MS = 5000
 MAX_BATCH = 50                  # events per request, the server's limit
 MAX_BODY_BYTES = 60000          # the server takes bodies under 64 KB
 MAX_QUEUE = 1000
 MAX_REQUESTS_PER_FLUSH = 10     # the server allows 30 requests a minute per IP
-BACKOFF_SECONDS = (30, 120, 600, 3600)
+BACKOFF_SECONDS = (60, 300, 900, 3600)  # after a 429, 60 s at least
 LOCK_WAIT_MS = 3000
 SCHEMA_VERSION = 1
 
@@ -240,19 +233,8 @@ def new_uuid():
     return str(uuid.uuid4())
 
 
-def install_payload(install_id, info):
-    """The body of a registration (INSTALL_URL)."""
-    info = normalize_info(info)
-    payload = {'install_id': install_id, 'channel': info['channel'],
-               'addin_version': info['addin_version']}
-    for key in OPTIONAL_KEYS:
-        if info.get(key):
-            payload[key] = info[key]
-    return payload
-
-
 def make_event(install_id, info, event_type, tool=None, ok=True, now=None):
-    """One event for EVENTS_URL, with its event_id. `tool` and `result` only
+    """One event, with its event_id. `tool` and `result` only
     exist on a tool_run: the server drops an install or a heartbeat that
     carries them."""
     info = normalize_info(info)
@@ -294,19 +276,21 @@ def batches(events, max_items=MAX_BATCH, max_bytes=MAX_BODY_BYTES):
 
 
 def outcome(status):
-    """What a status code means for what was sent: "sent", "drop" (the
-    server will never take it: 400, 413, 422) or "retry" (anything else,
-    0 being a network error or a timeout)."""
+    """What a status code means for what was sent: "sent" (202, or 200 for
+    an empty array; an event the server rejects on its own is kept there with
+    the reason, so sending it again changes nothing), "drop" (the server will
+    never take it: 400, 413) or "retry" (anything else: 429, 503, 0 being a
+    network error or a timeout)."""
     if 200 <= status < 300:
         return 'sent'
-    if status in (400, 413, 422):
+    if status in (400, 413):
         return 'drop'
     return 'retry'
 
 
 def backoff_seconds(failures):
-    """The wait after `failures` failed attempts in a row: 30 s, 2 min,
-    10 min, then 1 h."""
+    """The wait after `failures` failed attempts in a row: 1 min, 5 min,
+    15 min, then 1 h."""
     index = min(max(failures, 1), len(BACKOFF_SECONDS)) - 1
     return BACKOFF_SECONDS[index]
 
@@ -319,7 +303,7 @@ def send_events(batch, post):
     done, parts = [], [batch]
     while parts:
         part = parts.pop(0)
-        status = post(EVENTS_URL, part)
+        status = post(URL, part)
         result = outcome(status)
         if status == 413 and len(part) > 1:
             half = len(part) // 2
@@ -482,6 +466,14 @@ def _reset_backoff(state):
     state.pop('next_attempt_at', None)
 
 
+def _queue_install(state, queue, now):
+    """The "install" event, first in the queue, once per install ID."""
+    install_id = state['install_id']
+    if state.get('install_event') != install_id:
+        queue.insert(0, make_event(install_id, state.get('info'), 'install', now=now))
+        state['install_event'] = install_id
+
+
 # --- What the extension calls -----------------------------------------------------
 
 def consent():
@@ -509,10 +501,10 @@ def is_enabled():
 
 
 def set_consent(granted, info=None):
-    """Store the answer. Yes: a new install ID, then the registration starts
-    on its own thread. No, or a later opt-out: the queue, the install ID and
-    everything else is deleted; only the "no" is kept, so nobody is asked
-    again. A later yes starts over with a new install ID."""
+    """Store the answer. Yes: a new install ID and its "install" event, then
+    the sending starts on its own thread. No, or a later opt-out: the queue,
+    the install ID and everything else is deleted; only the "no" is kept, so
+    nobody is asked again. A later yes starts over with a new install ID."""
     def change(state, queue):
         if granted and _consented(state):
             return False
@@ -522,6 +514,7 @@ def set_consent(granted, info=None):
         if granted:
             state['install_id'] = new_uuid()
             state['info'] = normalize_info(info)
+            _queue_install(state, queue, time.time())
         return True
     _transact(change)
     if granted:
@@ -547,8 +540,8 @@ def record_tool_run(tool, ok, info, now=None):
 
 def startup(info, now=None):
     """At extension load: the day's heartbeat, if there was none yet, then a
-    send, which registers the install again when a version changed and sends
-    whatever an earlier session left in the queue. Nothing without consent."""
+    send of whatever is queued, including what an earlier session left.
+    Nothing without consent."""
     if env_disabled():
         return
     now = time.time() if now is None else now
@@ -557,6 +550,9 @@ def startup(info, now=None):
         if not _consented(state):
             return False
         state['info'] = normalize_info(info, state.get('info'))
+        for key in ('registered', 'rejected'):      # left by 0.2.0
+            state.pop(key, None)
+        _queue_install(state, queue, now)
         day = utc_day(now)
         if state.get('heartbeat_day') != day:
             queue.append(make_event(state['install_id'], state['info'],
@@ -595,9 +591,9 @@ def _drain():
 
 
 def flush(post=None, now=None):
-    """Register the install if needed, then send the queue. Blocking: the
-    extension calls flush_async(). post(url, payload) returns a status code,
-    0 for a network error or a timeout."""
+    """Send the queue. Blocking: the extension calls flush_async().
+    post(url, payload) returns a status code, 0 for a network error or a
+    timeout."""
     if env_disabled() or not _SEND_LOCK.acquire(0):
         return
     try:
@@ -609,31 +605,15 @@ def flush(post=None, now=None):
 
 
 def _flush(post, now):
-    snap = _snapshot(with_queue=False)
-    if snap is None:
-        return
-    state = snap[0]
-    install_id = state.get('install_id')
-    if not _consented(state) or now < (state.get('next_attempt_at') or 0):
-        return
-    payload = install_payload(install_id, state.get('info'))
-    if state.get('registered') != payload and state.get('rejected') != payload:
-        result = outcome(post(INSTALL_URL, payload))
-        if not _transact(lambda st, q: _after_install(st, q, install_id, payload,
-                                                     result, now)):
-            return
-        if result == 'retry':
-            return
     requests = 0
     while requests < MAX_REQUESTS_PER_FLUSH:
         snap = _snapshot()
         if snap is None:
             return
         state, queue = snap
-        if (not _consented(state) or state.get('install_id') != install_id
-                or (state.get('registered') or {}).get('install_id') != install_id
-                or now < (state.get('next_attempt_at') or 0)):
+        if not _consented(state) or now < (state.get('next_attempt_at') or 0):
             return
+        install_id = state['install_id']
         pending = [event for event in queue if event.get('install_id') == install_id]
         if not pending:
             return
@@ -643,25 +623,6 @@ def _flush(post, now):
         _transact(lambda st, q: _after_events(st, q, done, retry, now))
         if retry:
             return
-
-
-def _after_install(state, queue, install_id, payload, result, now):
-    if not _consented(state) or state.get('install_id') != install_id:
-        return False                        # opted out while it was sending
-    if result == 'sent':
-        state['registered'] = payload
-        state.pop('rejected', None)
-        _reset_backoff(state)
-        if state.get('install_event') != install_id:
-            # First in the queue: anything queued while the registration was
-            # pending happened after the user said yes.
-            queue.insert(0, make_event(install_id, payload, 'install', now=now))
-            state['install_event'] = install_id
-    elif result == 'drop':
-        state['rejected'] = payload         # not sent again until a version changes
-    else:
-        _backoff(state, now)
-    return True
 
 
 def _after_events(state, queue, done, retry, now):
@@ -745,7 +706,6 @@ def _dotnet_post(url, payload):
     request = HttpWebRequest.Create(url)
     request.Method = "POST"
     request.ContentType = "application/json"
-    request.Headers.Add("Authorization", "Bearer " + TOKEN)
     request.Timeout = TIMEOUT_MS
     request.ReadWriteTimeout = TIMEOUT_MS
     request.ContentLength = data.Length
