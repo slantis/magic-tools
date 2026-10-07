@@ -44,34 +44,24 @@ KNOWN_TOOLS = sorted([
 
 class FakeServer(object):
     """Stands in for _post: records every request and answers from a script
-    of status codes (the last one repeats)."""
+    of status codes (the last one repeats). A status can be a function of the
+    payload."""
 
-    def __init__(self, *install, **kwargs):
-        self.install = list(install) or [202]
-        self.events = list(kwargs.get('events') or [202])
+    def __init__(self, *statuses):
+        self.statuses = list(statuses) or [202]
         self.calls = []
-
-    def _next(self, script):
-        return script.pop(0) if len(script) > 1 else script[0]
 
     def __call__(self, url, payload):
         # What goes out is what json can carry: no sets, no objects.
         payload = json.loads(t.dumps(payload))
-        self.calls.append((url, payload))
-        if url == t.INSTALL_URL:
-            return self._next(self.install)
-        if url == t.EVENTS_URL:
-            if callable(self.events[0]):
-                return self.events[0](payload)
-            return self._next(self.events)
-        raise AssertionError('unexpected URL ' + url)
-
-    def urls(self):
-        return [url for url, _ in self.calls]
+        if url != t.URL:
+            raise AssertionError('unexpected URL ' + url)
+        self.calls.append(payload)
+        status = self.statuses.pop(0) if len(self.statuses) > 1 else self.statuses[0]
+        return status(payload) if callable(status) else status
 
     def sent_events(self):
-        return [event for url, payload in self.calls if url == t.EVENTS_URL
-                for event in payload]
+        return [event for payload in self.calls for event in payload]
 
 
 class Base(unittest.TestCase):
@@ -163,7 +153,7 @@ class Switches(Base):
             t.flush_async()
             self.assertEqual(server.calls, [])
             self.assertEqual(self.spawned, [])
-            self.assertEqual(self.queue(), [])
+            self.assertEqual([e['event_type'] for e in self.queue()], ['install'])
             del os.environ[name]
         self.assertTrue(t.is_enabled())
 
@@ -223,13 +213,10 @@ class Fields(Base):
     def test_unknown_versions_are_left_out(self):
         info = {'addin_version': '0.2.0', 'channel': 'zip'}
         event = t.make_event('iid', info, 'heartbeat')
-        payload = t.install_payload('iid', info)
-        for body in (event, payload):
-            self.assertNotIn('revit_version', body)
-            self.assertNotIn('pyrevit_version', body)
-            self.assertNotIn(None, body.values())
-        self.assertEqual(payload, {'install_id': 'iid', 'channel': 'zip',
-                                   'addin_version': '0.2.0'})
+        self.assertNotIn('revit_version', event)
+        self.assertNotIn('pyrevit_version', event)
+        self.assertNotIn(None, event.values())
+        self.assertEqual((event['channel'], event['addin_version']), ('zip', '0.2.0'))
 
     def test_versions_follow_the_server_rules(self):
         self.assertEqual(t.clean_version('5.0.1.25181+1416 (beta)', 60),
@@ -288,14 +275,14 @@ class Batching(Base):
     def test_status_codes(self):
         for status in (200, 202, 204):
             self.assertEqual(t.outcome(status), 'sent')
-        for status in (400, 413, 422):
+        for status in (400, 413):
             self.assertEqual(t.outcome(status), 'drop')
-        for status in (0, 401, 403, 404, 429, 500, 502, 503):
+        for status in (0, 401, 403, 404, 422, 429, 500, 502, 503):
             self.assertEqual(t.outcome(status), 'retry')
 
     def test_backoff(self):
         self.assertEqual([t.backoff_seconds(n) for n in range(1, 7)],
-                         [30, 120, 600, 3600, 3600, 3600])
+                         [60, 300, 900, 3600, 3600, 3600])
 
     def test_413_is_split_down_to_single_events_which_are_dropped(self):
         batch = self.events(5)
@@ -322,102 +309,92 @@ class Batching(Base):
 
 class Sending(Base):
 
-    def test_registration_comes_first_then_the_install_event(self):
+    def test_the_install_event_comes_first(self):
         install_id = self.opt_in()
-        self.assertEqual(len(self.spawned), 1)        # the registration started
+        self.assertEqual(len(self.spawned), 1)        # the send started
+        self.assertEqual([e['event_type'] for e in self.queue()], ['install'])
         t.record_tool_run('Find Room', True, INFO, now=NOON)
         server = FakeServer()
         t.flush(server, now=NOON)
-        self.assertEqual(server.urls(), [t.INSTALL_URL, t.EVENTS_URL])
-        registration = server.calls[0][1]
-        self.assertEqual(registration, {'install_id': install_id, 'channel': 'git',
-                                        'addin_version': '0.2.0', 'revit_version': '2025',
-                                        'pyrevit_version': '5.0.1.25181+1416'})
+        self.assertEqual(len(server.calls), 1)
         sent = server.sent_events()
         self.assertEqual([e['event_type'] for e in sent], ['install', 'tool_run'])
         self.assertTrue(all(e['install_id'] == install_id for e in sent))
+        self.assertEqual(sent[0]['revit_version'], '2025')
         self.assertEqual(self.queue(), [])
-        self.assertEqual(self.state()['registered'], registration)
 
-    def test_no_event_before_the_registration_succeeds(self):
+    def test_one_install_event_per_install_id(self):
         self.opt_in()
+        self.opt_in()
+        t.startup(INFO, now=NOON)
         t.record_tool_run('Find Room', True, INFO, now=NOON)
+        kinds = [e['event_type'] for e in self.queue()]
+        self.assertEqual(kinds.count('install'), 1)
+        self.assertEqual(kinds[0], 'install')
+
+    def test_a_020_state_gets_its_install_event_and_loses_the_registration(self):
+        install_id = self.opt_in()
+
+        def as_020(state, queue):
+            del queue[:]
+            state.pop('install_event')
+            state['registered'] = {'install_id': install_id}
+            return True
+        t._transact(as_020)
+        t.startup(INFO, now=NOON)
+        self.assertEqual([e['event_type'] for e in self.queue()], ['install', 'heartbeat'])
+        self.assertNotIn('registered', self.state())
+
+    def test_a_network_error_backs_off(self):
+        self.opt_in()
         server = FakeServer(0)
         t.flush(server, now=NOON)
-        self.assertEqual(server.urls(), [t.INSTALL_URL])
-        self.assertEqual(self.state()['next_attempt_at'], NOON + 30)
+        self.assertEqual(len(server.calls), 1)
+        self.assertEqual(self.state()['next_attempt_at'], NOON + 60)
         self.assertEqual(len(self.queue()), 1)
 
     def test_backoff_is_kept_and_grows(self):
         self.opt_in()
         server = FakeServer(503, 429, 202)
         t.flush(server, now=NOON)
-        t.flush(server, now=NOON + 29)              # still waiting
+        t.flush(server, now=NOON + 59)              # still waiting
         self.assertEqual(len(server.calls), 1)
-        t.flush(server, now=NOON + 30)
-        self.assertEqual(self.state()['next_attempt_at'], NOON + 30 + 120)
-        t.flush(server, now=NOON + 150)
+        t.flush(server, now=NOON + 60)
+        self.assertEqual(self.state()['next_attempt_at'], NOON + 60 + 300)
+        t.flush(server, now=NOON + 360)
         self.assertNotIn('next_attempt_at', self.state())
-        self.assertEqual(server.urls(), [t.INSTALL_URL] * 3 + [t.EVENTS_URL])
+        self.assertEqual(len(server.calls), 3)
+        self.assertEqual(self.queue(), [])
 
     def test_retries_resend_the_same_event_ids(self):
         self.opt_in()
         t.record_tool_run('Find Room', False, INFO, now=NOON)
-        server = FakeServer(202, events=[500, 202])
+        server = FakeServer(500, 202)
         t.flush(server, now=NOON)
         first = [e['event_id'] for e in server.sent_events()]
         self.assertEqual(len(self.queue()), 2)
-        t.flush(server, now=NOON + 31)
+        t.flush(server, now=NOON + 61)
         second = [e['event_id'] for e in server.sent_events()][len(first):]
         self.assertEqual(first, second)
         self.assertEqual(self.queue(), [])
 
     def test_bad_batches_are_dropped(self):
-        for status in (400, 422):
-            shutil.rmtree(self.dir)
-            self.opt_in()
-            t.record_tool_run('Find Room', True, INFO, now=NOON)
-            server = FakeServer(202, events=[status, 202])
-            t.flush(server, now=NOON)
-            self.assertEqual(self.queue(), [])
-            self.assertNotIn('next_attempt_at', self.state())
-            self.assertEqual(server.urls().count(t.EVENTS_URL), 1)
-
-    def test_a_rejected_registration_is_not_sent_again(self):
         self.opt_in()
         t.record_tool_run('Find Room', True, INFO, now=NOON)
-        server = FakeServer(400)
+        server = FakeServer(400, 202)
         t.flush(server, now=NOON)
-        t.flush(server, now=NOON + 3600)
-        self.assertEqual(server.urls(), [t.INSTALL_URL])
-        self.assertEqual(len(self.queue()), 1)       # never sent unregistered
-        # A new version is a new registration.
-        t.startup(dict(INFO, revit_version='2026'), now=NOON)
-        t.flush(server, now=NOON + 3600)
-        self.assertEqual(server.urls(), [t.INSTALL_URL] * 2)
-
-    def test_a_version_change_registers_again_without_a_second_install(self):
-        self.opt_in()
-        server = FakeServer()
-        t.flush(server, now=NOON)
-        t.startup(INFO, now=NOON)
-        t.flush(server, now=NOON)
-        self.assertEqual(server.urls().count(t.INSTALL_URL), 1)
-        t.startup(dict(INFO, revit_version='2026'), now=NOON + 60)
-        t.flush(server, now=NOON + 60)
-        registrations = [payload for url, payload in server.calls if url == t.INSTALL_URL]
-        self.assertEqual(len(registrations), 2)
-        self.assertEqual(registrations[-1]['revit_version'], '2026')
-        kinds = [e['event_type'] for e in server.sent_events()]
-        self.assertEqual(kinds.count('install'), 1)
+        self.assertEqual(self.queue(), [])
+        self.assertNotIn('next_attempt_at', self.state())
+        self.assertEqual(len(server.calls), 1)
 
     def test_one_heartbeat_per_utc_day(self):
         self.opt_in()
         for now in (DAY + 60, NOON, DAY + 86399):
             t.startup(INFO, now=now)
-        self.assertEqual([e['event_type'] for e in self.queue()], ['heartbeat'])
+        self.assertEqual([e['event_type'] for e in self.queue()], ['install', 'heartbeat'])
         t.startup(INFO, now=DAY + 86400)
-        self.assertEqual([e['event_type'] for e in self.queue()], ['heartbeat'] * 2)
+        self.assertEqual([e['event_type'] for e in self.queue()],
+                         ['install'] + ['heartbeat'] * 2)
 
     def test_queue_keeps_the_newest_thousand(self):
         install_id = self.opt_in()
@@ -437,7 +414,7 @@ class Sending(Base):
         t._transact(lambda state, queue: queue.extend(events) or True)
         server = FakeServer()
         t.flush(server, now=NOON)
-        self.assertEqual(server.urls().count(t.EVENTS_URL), t.MAX_REQUESTS_PER_FLUSH)
+        self.assertEqual(len(server.calls), t.MAX_REQUESTS_PER_FLUSH)
         self.assertEqual(len(self.queue()), 601 - 50 * t.MAX_REQUESTS_PER_FLUSH)
 
     def test_opting_out_while_sending_keeps_nothing(self):
@@ -447,7 +424,7 @@ class Sending(Base):
         def revoke_then_answer(payload):
             t.set_consent(False)
             return 202
-        server = FakeServer(202, events=[revoke_then_answer])
+        server = FakeServer(revoke_then_answer)
         t.flush(server, now=NOON)
         self.assertEqual(self.state(), {'consent': False})
         self.assertEqual(self.queue(), [])
@@ -466,9 +443,8 @@ class Sending(Base):
             has_tool = event['event_type'] == 'tool_run'
             self.assertEqual('tool' in event, has_tool)
             self.assertEqual('result' in event, has_tool)
-        self.assertEqual(set(server.calls[0][1]),
-                         set(['install_id', 'channel', 'addin_version', 'revit_version',
-                              'pyrevit_version']))
+        self.assertEqual([e['event_type'] for e in server.sent_events()],
+                         ['install', 'heartbeat', 'tool_run'])
 
     def test_state_files_are_plain_json(self):
         self.opt_in()
@@ -501,12 +477,12 @@ class Repository(unittest.TestCase):
             self.assertEqual(source.count('\nwith usage.tool_run(__file__) as run:\n'), 1,
                              path)
 
-    def test_the_policy_allows_exactly_the_two_endpoints(self):
+    def test_the_policy_allows_exactly_the_endpoint(self):
         with io.open(os.path.join(REPO, '.github', 'policy', 'policy.json'),
                      encoding='utf-8') as fh:
             telemetry = json.loads(fh.read())['telemetry']
         self.assertEqual(telemetry['module'], 'lib/telemetry.py')
-        self.assertEqual(sorted(telemetry['urls']), sorted([t.INSTALL_URL, t.EVENTS_URL]))
+        self.assertEqual(telemetry['urls'], [t.URL])
 
 
 if __name__ == '__main__':

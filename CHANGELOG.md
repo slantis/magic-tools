@@ -5,6 +5,17 @@ All notable changes to Magic Tools are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-07
+
+### Changed
+
+- Usage data goes to one endpoint on Supabase instead of two webhooks, with no token. The
+  `install` event is queued as soon as you say yes, with no separate registration first.
+  Waits between failed sends now go from 1 minute up to an hour. Nothing changes in what
+  is sent. See [TELEMETRY.md](TELEMETRY.md).
+- The policy check allows that one endpoint. The secrets check still allows the old public
+  token, which stays in the git history.
+
 ## [0.2.0] - 2026-10-07
 
 ### Added
@@ -65,6 +76,7 @@ Select Same Family was already in 0.0.1; the other 15 tools are new.
   pyRevit loads extensions from: update or delete an older one before installing a new one,
   or every tool shows twice.
 
-[Unreleased]: https://github.com/slantis/magic-tools/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/slantis/magic-tools/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/slantis/magic-tools/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/slantis/magic-tools/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/slantis/magic-tools/compare/v0.0.1...v0.1.0
