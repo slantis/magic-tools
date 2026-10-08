@@ -284,7 +284,9 @@ def _ask_new_set(current_name):
         <TextBox x:Name="txtValue" Margin="0,0,0,14"/>
         <StackPanel x:Name="pnlSource">
           <RadioButton x:Name="radCopy" GroupName="grpNewSetSource"
-                       IsChecked="True" Margin="0,0,0,8"/>
+                       IsChecked="True" Margin="0,0,0,8">
+            <TextBlock x:Name="lblCopy" TextWrapping="Wrap"/>
+          </RadioButton>
           <RadioButton x:Name="radEmpty" GroupName="grpNewSetSource"
                        Content="Empty"/>
         </StackPanel>
@@ -298,18 +300,23 @@ def _ask_new_set(current_name):
         </StackPanel>
       </Grid>
     """
-    win        = ui.parse(u'New Print Set', u'', _body, _footer, width=440, height=290)
+    # Bug fix (QA V2 point 2): no fixed height. A fixed 290 cut the "Empty"
+    # radio off whenever the "Copy of ..." label ran long; height=None makes
+    # slantisui size the window to its content, and the label is a wrapping
+    # TextBlock so a long set name grows the window instead of overflowing.
+    win        = ui.parse(u'New Print Set', u'', _body, _footer, width=440)
     lbl_prompt = win.FindName('lblPrompt')
     txt        = win.FindName('txtValue')
     pnl_source = win.FindName('pnlSource')
     rad_copy   = win.FindName('radCopy')
+    lbl_copy   = win.FindName('lblCopy')
     rad_empty  = win.FindName('radEmpty')
     btn_ok     = win.FindName('btnOK')
     btn_cancel = win.FindName('btnCancel')
 
     lbl_prompt.Text = u'Name for the new print set:'
     if current_name:
-        rad_copy.Content   = (u'Copy of what you are viewing ("{0}", '
+        lbl_copy.Text      = (u'Copy of what you are viewing ("{0}", '
                                u'with your changes)').format(current_name)
         pnl_source.Visibility = Visibility.Visible
     else:
@@ -338,9 +345,11 @@ def _ask_new_set(current_name):
     return result[0]
 
 
-def _ask_save_discard_cancel(set_name):
-    """Dialog shown by Close/X with unsaved changes. Returns 'save',
-    'discard' or 'cancel'.
+def _ask_save_discard_cancel(set_name, action=u'closing'):
+    """Dialog shown with unsaved changes: Close/X, New and a switch of set
+    all use this one, so the user always gets the same three choices.
+    Returns 'save', 'discard' or 'cancel'. `action` finishes the sentence
+    "Save them before ...".
 
     Bug fix (QA point 2, 2026-09-24): Close and the window's X used to call
     Window.Close() directly, which lost every unsaved checkbox change with
@@ -363,8 +372,8 @@ def _ask_save_discard_cancel(set_name):
     """
     win = ui.parse(u'Unsaved changes', u'', _body, _footer, width=420, height=240)
     win.FindName('lblMsg').Text = (
-        u'You have unsaved changes in "{0}". Save them before closing?'
-    ).format(set_name or u'')
+        u'You have unsaved changes in "{0}". Save them before {1}?'
+    ).format(set_name or u'', action)
 
     result = [u'cancel']
 
@@ -711,30 +720,60 @@ class PrintSetManagerForm(object):
             self.loose_panel.Visibility = Visibility.Collapsed
             self._update_count()
 
+    def _select_silently(self, vss):
+        """Puts the list selection back on `vss` without raising
+        _on_set_selected (and so without asking about unsaved changes)."""
+        idx = next(
+            (i for i, ps in enumerate(self._print_sets) if ps is vss), -1
+        )
+        if idx >= 0:
+            self.lst_sets.SelectionChanged -= self._on_set_selected
+            self.lst_sets.SelectedIndex = idx
+            self.lst_sets.SelectionChanged += self._on_set_selected
+
     def _on_set_selected(self, sender, e):
         if self._dirty:
-            if not ui.confirm(
-                u'You have unsaved changes to "{}". Discard them?'.format(
-                    self._current_vss.Name if self._current_vss else u''),
-                title='Unsaved changes'
-            ):
-                # Revert selection back to current set using Dispatcher
-                old_vss = self._current_vss
+            # Bug fix (QA V2 point 3): same Save / Discard / Cancel dialog as
+            # Close and New, instead of a Continue/Cancel confirm.
+            old_vss = self._current_vss
+            choice  = _ask_save_discard_cancel(
+                old_vss.Name if old_vss else u'',
+                action=u'switching to another set'
+            )
+            if choice == u'cancel':
+                # Revert selection back to the current set using Dispatcher
+                # (the list cannot be changed from inside its own event).
                 def revert():
-                    old_idx = next(
-                        (i for i, ps in enumerate(self._print_sets)
-                         if ps is old_vss), -1
-                    )
-                    if old_idx >= 0:
-                        self.lst_sets.SelectionChanged -= self._on_set_selected
-                        self.lst_sets.SelectedIndex = old_idx
-                        self.lst_sets.SelectionChanged += self._on_set_selected
+                    self._select_silently(old_vss)
                 from System.Windows.Threading import DispatcherPriority
                 sender.Dispatcher.BeginInvoke(
                     DispatcherPriority.Background,
                     System.Action(revert)
                 )
                 return
+            if choice == u'save':
+                # The list already shows the target, but self._current_vss
+                # and the rows are still the OLD set's: save that one first
+                # (API call, so through modeless.run), then load the target.
+                # Same chain as Close, which closes only after a good save.
+                idx = self.lst_sets.SelectedIndex
+                if idx < 0 or idx >= len(self._print_sets):
+                    return
+                target_name = self._print_sets[idx].Name
+
+                def save_then_switch(uiapp):
+                    if not self._save_current_set():
+                        # Save failed (user already alerted): stay on the
+                        # old set with its changes still pending.
+                        self._select_silently(old_vss)
+                        return
+                    # _save_current_set rebuilt self._print_sets and cleared
+                    # _dirty, so this selection raises no second prompt.
+                    self._load_print_sets(select_name=target_name)
+
+                modeless.run(save_then_switch, doc=doc, title=TITLE)
+                return
+            # 'discard': fall through and load the target set below.
 
         idx = self.lst_sets.SelectedIndex
         if idx < 0 or idx >= len(self._print_sets):
@@ -1056,12 +1095,18 @@ class PrintSetManagerForm(object):
             return False
 
     def _on_new_set(self, sender, e):
+        # Bug fix (QA V2 point 3): asked ONCE, here, with the same Save /
+        # Discard / Cancel dialog as Close. The jump to the new set after
+        # Create clears _dirty first (see work below), so it never asks again.
         save_first = False
         if self._dirty:
-            if ui.confirm(u'Save current changes to "{0}" before creating a new set?'.format(
-                    self._current_vss.Name if self._current_vss else u''),
-                    title='Unsaved changes'):
-                save_first = True
+            choice = _ask_save_discard_cancel(
+                self._current_vss.Name if self._current_vss else u'',
+                action=u'creating a new set'
+            )
+            if choice == u'cancel':
+                return
+            save_first = (choice == u'save')
 
         current_name = self._current_vss.Name if self._current_vss is not None else None
         picked = _ask_new_set(current_name)
@@ -1084,11 +1129,12 @@ class PrintSetManagerForm(object):
 
         def work(uiapp):
             # Transaction and PrintManager touch the API: they run inside
-            # the ExternalEvent, not in the click. Same order as before: the
-            # pending save (if any) runs first, then the new set is created
-            # regardless of its outcome.
+            # the ExternalEvent, not in the click. The pending save (if any)
+            # runs first; if it fails (user already alerted) New is aborted
+            # so the unsaved changes are not lost.
             if save_first and self._current_vss is not None:
-                self._save_current_set()
+                if not self._save_current_set():
+                    return
 
             if source == u'copy':
                 src_views = []
@@ -1104,6 +1150,10 @@ class PrintSetManagerForm(object):
                 src_views = []
 
             if self._create_print_set(new_name, src_views):
+                # The user already answered Save/Discard in the click; clear
+                # the flag so selecting the new set does not ask again.
+                self._dirty = False
+                self.btn_save.IsEnabled = False
                 self._load_print_sets(select_name=new_name)
 
         modeless.run(work, doc=doc, title=TITLE)

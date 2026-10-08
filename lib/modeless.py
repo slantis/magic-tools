@@ -44,12 +44,14 @@ Execute is the one that is valid (bug of 2026-09-02, toolpane.run_command).
 The one exception is the main window handle for ownership, which is not an
 API call.
 """
+import os
 import traceback
 
 import clr
 clr.AddReference('RevitAPIUI')
 clr.AddReference('PresentationFramework')
 from Autodesk.Revit import UI
+from System import AppDomain, Object
 from System.Windows import WindowState
 from System.Windows.Interop import WindowInteropHelper
 
@@ -59,7 +61,95 @@ from slantisui import ui
 
 _HANDLER = None
 _EVENT = None
-_OPEN = {}          # key -> live Window; the persistent engine keeps it
+
+# The registry of open windows lives in the AppDomain, not in this module
+# (QA round 3, 2026-10-06). A module dict (`_OPEN`, until then) only
+# held while every click ran in the same engine, and it did not: the trace
+# showed "arm: ExternalEvent created" on each click while the first window
+# kept answering, so each click got a fresh copy of this module and focus()
+# never found the window. Five tools opened a second window (Inspect View
+# piled up ten). The AppDomain outlives any engine, the same place
+# lib/favbar.py keeps its state. Each entry also records the pyRevit session
+# it was opened in: after a Reload the old window is closed and rebuilt, so
+# the button never brings back a window running the code from before the
+# Reload (the Cloud Manager bug of 2026-10-06, fc5373d). And the model it
+# was built for (plus an optional tag, the view for a view-bound tool): a
+# click in another model rebuilds instead of bringing back a window whose
+# every action would be refused.
+# The AppDomain is shared by every extension in the session, so the slots
+# are scoped by this file's folder: the open source package and the team's
+# Magic Tools (or MT Testing) side by side never hand each other a window.
+_SCOPE = os.path.dirname(os.path.abspath(__file__)).lower() + '|'
+_SLOT = 'magictools.modeless.win.'
+_SLOT_SESSION = 'magictools.modeless.session.'
+_SLOT_DOC = 'magictools.modeless.doc.'
+_SLOT_TAG = 'magictools.modeless.tag.'
+
+
+def _slot(prefix, key):
+    return prefix + _SCOPE + key
+
+
+def _session():
+    try:
+        from pyrevit.coreutils import envvars
+        return envvars.get_pyrevit_env_var(envvars.SESSIONUUID_ENVVAR) or ''
+    except Exception:
+        return ''
+
+
+def _get(key, prefix=_SLOT):
+    try:
+        return AppDomain.CurrentDomain.GetData(_slot(prefix, key))
+    except Exception:
+        return None
+
+
+def _put(key, win, doc=None, tag=None):
+    domain = AppDomain.CurrentDomain
+    try:
+        domain.SetData(_slot(_SLOT, key), win)
+        domain.SetData(_slot(_SLOT_SESSION, key),
+                       _session() if win is not None else None)
+        domain.SetData(_slot(_SLOT_DOC, key), doc)
+        domain.SetData(_slot(_SLOT_TAG, key), tag)
+    except Exception:
+        traceback.print_exc()
+
+
+def _forget(key, win=None):
+    """Drop the entry; with `win`, only if it is still that window."""
+    if win is None or Object.ReferenceEquals(_get(key), win):
+        _put(key, None)
+
+
+def _stale(key):
+    """Opened before the last pyRevit Reload. An unreadable session id says
+    nothing, so it never closes a healthy window."""
+    opened_in = _get(key, _SLOT_SESSION)
+    current = _session()
+    return bool(opened_in) and bool(current) and opened_in != current
+
+
+def _active_doc():
+    try:
+        return HOST_APP.uiapp.ActiveUIDocument.Document
+    except Exception:
+        return None
+
+
+def _other_model(key, doc):
+    """True when the window was built for another model than `doc` (the
+    active one when None). Unknown on either side reads as the same model."""
+    built_for = _get(key, _SLOT_DOC)
+    if doc is None:
+        doc = _active_doc()
+    if built_for is None or doc is None:
+        return False
+    try:
+        return not built_for.Equals(doc)
+    except Exception:
+        return True                 # its model was closed
 
 # FORENSIC TRACE (2026-09-08). One line per step, appended to a file in
 # %APPDATA%/pyRevit, because the pyRevit output window dies with Revit and the
@@ -186,26 +276,48 @@ def run(fn, doc=None, title=u"Magic Tools"):
                  title=title)
 
 
-def focus(key):
+def focus(key, doc=None, tag=None):
     """True if a window with this key is open, after bringing it to front.
-    Call it first thing: when it is True the script has nothing to build."""
-    live = _OPEN.get(key)
-    if live is None:
+    Call it first thing: when it is True the script has nothing to build.
+    `doc` and `tag` as in live()."""
+    win = live(key, doc=doc, tag=tag)
+    if win is None:
         return False
     try:
-        if live.WindowState == WindowState.Minimized:
-            live.WindowState = WindowState.Normal
-        live.Activate()
+        if win.WindowState == WindowState.Minimized:
+            win.WindowState = WindowState.Normal
+        win.Activate()
         return True
     except Exception:
-        _OPEN.pop(key, None)        # closed or dead: let the caller rebuild
+        _forget(key)                # closed or dead: let the caller rebuild
         return False
 
 
-def live(key):
+def live(key, doc=None, tag=None):
     """The open window registered under `key`, or None. For a tool that wants
-    to look at its own window before deciding between focus() and close()."""
-    return _OPEN.get(key)
+    to look at its own window before deciding between focus() and close().
+
+    A window that no longer fits is closed here, so the caller builds a new
+    one: opened before a pyRevit Reload (it runs the old code), built for
+    another model than `doc` (the active one when None), or, when `tag` is
+    given, shown with another tag (Scan Current View passes the view). If its
+    own Closing refuses (unsaved edits, the user chose Cancel), it stays and
+    is returned: one window, not two."""
+    win = _get(key)
+    if win is None:
+        return None
+    why = None
+    if _stale(key):
+        why = "window from before a Reload"
+    elif _other_model(key, doc):
+        why = "window of another model"
+    elif tag is not None and _get(key, _SLOT_TAG) != tag:
+        why = "window shown for another tag"
+    if why is not None:
+        _trace("live '{0}': {1}, closing it".format(key, why))
+        close(key)
+        return _get(key)
+    return win
 
 
 def close(key):
@@ -214,15 +326,23 @@ def close(key):
     For a tool that finds its window built for a state that no longer holds
     and would rather rebuild than refocus: Inspect View on another view,
     2026-09-15, when Inspect Model hands it a view. Same UI thread as show(),
-    so Close() is legal here; the Closed handler finds the key already gone.
+    so Close() is legal here. The entry goes only once the window is really
+    gone: a Closing handler that cancels (Print Set Manager and View Template
+    Manager with unsaved edits) leaves it open and still registered.
     """
-    win = _OPEN.pop(key, None)
+    win = _get(key)
     if win is None:
         return False
     try:
         win.Close()
     except Exception:
         traceback.print_exc()
+    try:
+        still_open = win.IsVisible
+    except Exception:
+        still_open = False
+    if not still_open:
+        _forget(key, win)
     return True
 
 
@@ -236,19 +356,20 @@ def own_by_revit(win):
         traceback.print_exc()
 
 
-def show(win, key, doc=None, on_closed=None):
-    """Show `win` modeless, owned by Revit, remembered under `key`.
+def show(win, key, doc=None, on_closed=None, tag=None):
+    """Show `win` modeless, owned by Revit, remembered under `key`, with the
+    model it is built for (`doc`) and an optional `tag` that live() and
+    focus() compare against.
 
     `on_closed(sender, args)` runs when the window closes, after the
     registry forgot it: the place to drop references the persistent engine
     would otherwise keep alive. Returns the window.
     """
     arm()
-    _OPEN[key] = win
+    _put(key, win, doc=doc, tag=tag)
 
     def closed(sender, args):
-        if _OPEN.get(key) is win:
-            _OPEN.pop(key, None)
+        _forget(key, win)
         if on_closed is not None:
             try:
                 on_closed(sender, args)

@@ -64,7 +64,18 @@ from Autodesk.Revit.DB import (
 )
 from Autodesk.Revit.UI.Selection import ObjectType
 from System.Windows import Visibility
+from System import EventHandler
+from Autodesk.Revit.UI.Events import ViewActivatedEventArgs
 from pyrevit import HOST_APP
+
+def _log(msg):
+    """One line in the modeless trace file. Never raises: a log line must not
+    stop the window from opening or an action from running."""
+    try:
+        modeless._trace(u"inspect view: " + msg)
+    except Exception:
+        pass
+
 
 def _id_val(eid):
     # ElementId value compat Revit 2022-2026 (IntegerValue removed in 2026)
@@ -567,6 +578,13 @@ class InspectViewForm(object):
             # Revit session.
             self._on_win_closed(None, None)
             raise
+        if self._uiapp is None:
+            # The click-time UIApplication did not take the subscription
+            # (after a Transaction __revit__ can be the Application): take it
+            # now from the first ExternalEvent, before the user switches view,
+            # not at their first click on the window.
+            modeless.run(lambda uiapp: self._subscribe(uiapp),
+                         doc=doc, title=TITLE)
 
     # ---- The pinned view ---------------------------------------------------
 
@@ -639,6 +657,9 @@ class InspectViewForm(object):
             if self._closed:
                 # The window closed between the click and Revit running the job.
                 return
+            # The UIApplication Revit hands the job is the one known to be
+            # valid: if the click-time subscription did not take, take it here.
+            self._subscribe(uiapp)
             try:
                 self._check_banner(uiapp.ActiveUIDocument.ActiveView)
             except Exception:
@@ -648,20 +669,36 @@ class InspectViewForm(object):
 
     # ---- The "you are in another view" strip -------------------------------
 
-    def _subscribe(self):
+    def _subscribe(self, uiapp=None):
         """Follow view changes so the strip shows up the moment the user
         leaves the pinned view, not at the next click. Best effort: without
-        the event, _queue() still shows it before the next action runs."""
-        self._ev_handler = self._on_view_activated
-        for getter in (lambda: __revit__, lambda: HOST_APP.uiapp):   # noqa
+        the event, _queue() still shows it before the next action runs.
+
+        QA round 3 (2026-10-06): the strip only ever showed up through
+        that safety net, so the click-time subscription was not taking, and
+        it failed in silence. Now the handler is a typed delegate (the shape
+        lib/palette.py follows views with), every job retries with the
+        UIApplication Revit hands it, and each outcome goes to the modeless
+        trace file so a next failure says where it broke. A no-op once
+        subscribed."""
+        if self._uiapp is not None or self._closed:
+            return
+        if self._ev_handler is None:
+            self._ev_handler = EventHandler[ViewActivatedEventArgs](
+                self._on_view_activated)
+        candidates = [lambda: uiapp, lambda: __revit__,       # noqa
+                      lambda: HOST_APP.uiapp]
+        for i, getter in enumerate(candidates):
             try:
                 app = getter()
-                if app is not None and hasattr(app, 'ViewActivated'):
-                    app.ViewActivated += self._ev_handler
-                    self._uiapp = app
-                    return
-            except Exception:
-                pass
+                if app is None or not hasattr(app, 'ViewActivated'):
+                    continue
+                app.ViewActivated += self._ev_handler
+                self._uiapp = app
+                _log(u"ViewActivated subscribed (source {0})".format(i))
+                return
+            except Exception as ex:
+                _log(u"ViewActivated source {0} failed: {1!r}".format(i, ex))
 
     def _on_win_closed(self, sender, args):
         self._closed = True
@@ -677,8 +714,8 @@ class InspectViewForm(object):
             return
         try:
             self._check_banner(args.CurrentActivatedView)
-        except Exception:
-            pass
+        except Exception as ex:
+            _log(u"banner on ViewActivated failed: {0!r}".format(ex))
 
     def _check_banner(self, active):
         """Show the strip when `active` (a View) is not the pinned one, hide

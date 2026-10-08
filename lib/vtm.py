@@ -2987,6 +2987,21 @@ _BODY = u"""
                     SelectionMode="Single" CanUserAddRows="False" CanUserDeleteRows="False"
                     CanUserSortColumns="False" CanUserResizeRows="False"
                     CanUserResizeColumns="False">
+            <DataGrid.Resources>
+              <!-- Same as the Model grid: a selected row must read the same with or
+                   without focus. WPF swaps the selection to SystemColors.InactiveSelectionHighlight(Text)Brush
+                   as soon as focus lands on something else in the window (a
+                   tick box in the row is enough), and those default to the
+                   OS light grey with its own ink: a white row with light text
+                   in the dark theme (QA, 2026-10-06). Both pairs (focused and
+                   not) are the wash and ink of slantisui's DataGridRow
+                   selection, so the row cannot change look. Scoped fix; the
+                   master of slantisui lives in Design System. -->
+              <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}"     Color="#21FF7700"/>
+              <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#202022"/>
+              <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}"                      Color="#21FF7700"/>
+              <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}"                  Color="#202022"/>
+            </DataGrid.Resources>
             <DataGrid.Columns>
               <!-- 72, not 46: the cell style pads 12 px each side and the
                    chevron takes 18, so at 46 the 15 px check box had 4 px
@@ -3176,6 +3191,19 @@ _BODY = u"""
                     CanUserResizeColumns="False"
                     ScrollViewer.HorizontalScrollBarVisibility="Auto">
             <DataGrid.Resources>
+              <!-- A selected row must read the same with or without focus. WPF swaps
+                   the selection to SystemColors.InactiveSelectionHighlight(Text)Brush
+                   as soon as focus lands on something else in the window (a
+                   tick box in the row is enough), and those default to the
+                   OS light grey with its own ink: a white row with light text
+                   in the dark theme (QA, 2026-10-06). Both pairs (focused and
+                   not) are the wash and ink of slantisui's DataGridRow
+                   selection, so the row cannot change look. Scoped fix; the
+                   master of slantisui lives in Design System. -->
+              <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}"     Color="#21FF7700"/>
+              <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#202022"/>
+              <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}"                      Color="#21FF7700"/>
+              <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}"                  Color="#202022"/>
               <!-- slantisui's ScrollBar style sets Width=8 for EVERY bar, so
                    the horizontal one renders 8 px wide, i.e. invisible
                    (feedback, 09-18: "there is no horizontal slider"). Scoped

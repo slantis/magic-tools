@@ -13,7 +13,9 @@ never finds the window a previous click opened: a second click on the ribbon
 button opened the scope dialog again, modal, on top of the open table. A module
 in lib/ survives in sys.modules for as long as Revit runs, so hosting the
 window and its handlers here (same shape as lib/findroom.py) keeps them alive
-AND keeps `modeless._OPEN` populated across clicks, with no `__cleanengine__`.
+with no `__cleanengine__`. Which window is open is kept by lib/modeless.py in
+the AppDomain since 2026-10-06, because a module dict did not survive clicks
+either (QA round 3).
 
 The door (the .pushbutton's script.py) is three lines: `import inspectmodel` +
 `inspectmodel.open_window(<its own bundle folder>)`.
@@ -30,6 +32,7 @@ from Autodesk.Revit.DB import (
     FilteredElementCollector, ElementId, View, ViewType, ViewSheet, ViewSheetSet,
     OverrideGraphicSettings
 )
+from System import AppDomain
 from System.Collections.ObjectModel import ObservableCollection
 from System.ComponentModel import INotifyPropertyChanged, PropertyChangedEventArgs
 from System.Windows import RoutedEventHandler
@@ -620,6 +623,60 @@ class _SafeProgress(object):
             self._drop()
 
 
+# A scan in progress, kept in the AppDomain so every engine sees it.
+_SCANNING = 'magictools.inspectmodel.scanning'
+
+
+def scanning():
+    try:
+        return bool(AppDomain.CurrentDomain.GetData(_SCANNING))
+    except Exception:
+        return False
+
+
+class _ScanLock(object):
+    """Nothing else can start from the ribbon while a scan runs.
+
+    The progress bar pumps window messages on every tick (it has to, to
+    repaint and to hear Cancel), so a click on the ribbon during a scan was
+    dispatched as a new command while this one was still inside the API.
+    Clicking Inspect Model Overrides again mid-scan closed Revit outright,
+    losing unsaved work (QA round 3, 2026-10-06, Revit 2025). The
+    ribbon is disabled for the length of the scan, the way a modal dialog
+    disables what is behind it, and the flag lets a click that still gets
+    through (a keyboard shortcut) turn itself away. The progress bar and its
+    Cancel stay live. Both come back in __exit__ whatever happened.
+    """
+
+    def __enter__(self):
+        self._ribbon = None
+        try:
+            AppDomain.CurrentDomain.SetData(_SCANNING, True)
+        except Exception:
+            pass
+        try:
+            from pyrevit.api import AdWindows
+            ribbon = AdWindows.ComponentManager.Ribbon
+            if ribbon is not None and ribbon.IsEnabled:
+                ribbon.IsEnabled = False
+                self._ribbon = ribbon
+        except Exception:
+            traceback.print_exc()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            if self._ribbon is not None:
+                self._ribbon.IsEnabled = True
+        except Exception:
+            traceback.print_exc()
+        try:
+            AppDomain.CurrentDomain.SetData(_SCANNING, None)
+        except Exception:
+            pass
+        return False
+
+
 def run_audit(views, doc):
     """Returns (list[AuditRow], n_views_total, was_cancelled)."""
     all_elements = list(
@@ -633,7 +690,7 @@ def run_audit(views, doc):
     # a per-view one, so each element is queried once for all 1000+ views.
     dep_index = hostecho.DependentIndex()
 
-    with _SafeProgress(TITLE, cancellable=True) as pb:
+    with _ScanLock(), _SafeProgress(TITLE, cancellable=True) as pb:
         for i, v in enumerate(views):
             if pb.cancelled:
                 cancelled = True
@@ -745,9 +802,13 @@ def _open(inspect_view_bundle):
     # below keep using it for as long as the window lives.
     doc = revit.doc
 
+    # A click that reaches here while a scan runs (the ribbon is off, a
+    # shortcut is not) is ignored: re-entering the scan is what closed Revit.
+    if scanning():
+        return
+
     # Second click on the button: bring the open window to the front, build
-    # nothing. This works because this module persists in sys.modules, so
-    # modeless._OPEN still holds the window the first click opened.
+    # nothing. lib/modeless.py keeps the window the first click opened.
     # Unless the active model changed since: the table belongs to the model it
     # was scanned in, so it is closed and the normal flow (scope dialog) runs
     # on the new one.
@@ -790,8 +851,10 @@ def _open(inspect_view_bundle):
             title=TITLE)
         return
 
-    subtitle = _stats_line(all_rows, n_views_total, was_cancelled,
-                           _n_dirty(all_rows))
+    # The counts live in one place, the footer, which Refresh updates. They
+    # used to be in the subtitle too, set once at construction, so after a
+    # Refresh the two disagreed (QA round 3).
+    subtitle = u"Views with element overrides or hidden elements. Double-click opens the view."
 
     win = ui.parse(TITLE, subtitle, _BODY, _FOOTER,
                    width=980, height=620)
@@ -905,6 +968,9 @@ def _open(inspect_view_bundle):
         modeless.run(work, doc=doc, title=TITLE)
 
     def on_refresh(s, e):
+        if scanning():
+            return
+
         def work(uiapp):
             # Hide/Show and the collector-based re-scan all touch the API:
             # the whole cycle runs inside the ExternalEvent.

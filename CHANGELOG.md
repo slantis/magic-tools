@@ -10,6 +10,37 @@ All notable changes to Magic Tools are listed here. The format follows
 - New README with a header, a picture of the ribbon and the mascot on each section; the
   images live in `.github/readme/` and stay out of the release ZIP. The policy check takes
   PNG and GIF there, each one checked to be a well-formed image.
+- **Cloud Manager** is the new version: one dashboard window that stays open while you
+  work in Revit (it no longer closes after each action), with show, hide, tag, style, move
+  and delete, and a log of what each action did. Views and clouds owned by another user
+  in a workshared model are skipped and named, instead of failing the whole action.
+- **Create Type Filter** lists what it left out (elements with no type, categories Revit
+  cannot filter) in its own warning block, and counts in the singular ("1 Room").
+- **Goodbye Filter** says "Temporary view properties turned off" when you restore a view
+  that you put in that mode by hand, and explains why a view without a view template
+  cannot have its filters turned off temporarily.
+- **Rename Families** leaves codes exactly as typed (W12, HSS-4X4, MTT-A), keeps the "x"
+  of a size lower case (36" x 84"), and knows GFCI.
+- **Select Same Type** and **Select Same Family**: the pick prompt says that a click adds
+  or removes and that Finish confirms (Enter does not confirm in Revit 2025).
+- **View Template Manager**: the selected row reads the same with or without focus in the
+  dark theme.
+
+### Fixed
+
+- A second click on a tool whose window is already open brings that window to the front
+  instead of opening another one. `lib/modeless.py` keeps its registry of open windows in
+  the AppDomain, so it survives each click's new engine, and rebuilds the window after a
+  pyRevit Reload or in another model. Inspect Element Graphics opens one window per click
+  on purpose, to compare two elements side by side.
+- Inspect Model Overrides could close Revit if the ribbon was clicked during a scan; the
+  ribbon is disabled while it scans. Its counts live only in the footer, so they no longer
+  disagree with the subtitle after Refresh.
+- Inspect View Overrides shows its strip when you switch views.
+- Inspect Element Graphics names the Solid line pattern instead of showing an element Id.
+- Print Set Manager: the New Print Set window no longer cuts off the Empty option when the
+  set name is long, and closing, New or switching sets with unsaved changes all ask the
+  same question: Save, Discard or Cancel.
 
 ## [0.2.1] - 2026-10-07
 
