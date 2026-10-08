@@ -5,6 +5,13 @@ All notable changes to Magic Tools are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Clean Explode CAD** (Favorites, Annotate): explodes an imported DWG into native detail
+  lines on existing line styles, editable text notes and real Revit leaders
+  (`lib/cadtext.py` reads the DXF for texts, dimensions, multileaders and hatches). The
+  CAD is deleted only after asking, and never when something could not be converted.
+
 ### Changed
 
 - New README with a header, a picture of the ribbon and the mascot on each section; the

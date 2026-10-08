@@ -15,8 +15,8 @@
 Open source [pyRevit](https://github.com/pyrevitlabs/pyRevit) tools for Autodesk Revit,
 made by [/slantis](https://github.com/slantis).
 
-16 tools for view templates, filters, overrides, sheets, rooms and selection, plus
-**All Magic Tools**, a searchable window for the ten Favorites tools: star the ones you
+17 tools for view templates, filters, overrides, sheets, rooms and selection, plus
+**All Magic Tools**, a searchable window for the eleven Favorites tools: star the ones you
 want on the ribbon. Requires pyRevit and Revit 2022 or later.
 
 **Quick install**, with pyRevit already installed:
@@ -55,7 +55,7 @@ All Magic Tools and cannot be starred.
 
 | Group | Tool | What it does |
 |---|---|---|
-| | **All Magic Tools** | A searchable window for the ten Favorites tools, grouped by what they are for, with a description of each one before you run it. Star a tool to put it on the ribbon's Favorites panel; unstar it to take it off. Revit keeps working while the window is open. |
+| | **All Magic Tools** | A searchable window for the eleven Favorites tools, grouped by what they are for, with a description of each one before you run it. Star a tool to put it on the ribbon's Favorites panel; unstar it to take it off. Revit keeps working while the window is open. |
 | Navigation | **Next Sheet** | Goes to the next sheet in Project Browser order. Wraps around from the last sheet to the first. |
 | Navigation | **Parent Sheet** | Goes to the sheet where the active view is placed as a viewport. |
 | Navigation | **Previous Sheet** | Goes to the previous sheet in Project Browser order. Wraps around from the first sheet to the last. |
@@ -65,7 +65,7 @@ All Magic Tools and cannot be starred.
 
 ### Favorites panel
 
-These ten tools live in the Favorites panel, grouped as below. Star them in **All Magic
+These eleven tools live in the Favorites panel, grouped as below. Star them in **All Magic
 Tools** to show them on the ribbon.
 
 | Group | Tool | What it does |
@@ -74,6 +74,7 @@ Tools** to show them on the ribbon.
 | Analysis | **Inspect Model Overrides** | Finds the views that carry local element-level overrides or hidden elements, the stray ones a view template does not control. Pick the views by hand, narrow them to a print set, or keep only the views placed on sheets. A sortable grid shows the counts; double-click a row to open that view. |
 | Analysis | **Inspect View Overrides** | Lists every element in the active view that has an element-level graphic override (Override Graphics in View > By Element) or is hidden in view (Hide in View > Element). From the grid you can select or show them, edit their overrides (color, weight, halftone, transparency, patterns), copy the overrides of another element, or clear overrides and unhide in one step. Category, filter and Visibility/Graphics overrides are not shown. |
 | Analysis | **Inspect Element Graphics** | Select (or pick) one element and see everything that affects how it looks in the active view: element override, element hide, category override, category hide, the view filters it matches, and filter visibility off. Applies the precedence Revit uses and marks which source wins for each property (color, halftone, transparency, patterns): Element > Filter > Category > Default. |
+| Annotate | **Clean Explode CAD** | Explodes an imported DWG into native detail lines on the line styles the project already has, editable text notes and real Revit leaders. Dimensions become notes and hatches are drawn from their DXF pattern. The CAD is deleted only if everything was converted, and the tool asks first. |
 | Annotate | **Cloud Manager** | Manages revision clouds: pick the revisions, choose the views, then show, hide, tag, style, move or delete them and see what each action did. |
 | Navigation | **Find Room** | Searches rooms by name, number or level with live filtering. Selects the matching rooms in the model and zooms the active view to fit. Flags open (not enclosed) and redundant rooms with a status icon. Refresh re-reads the model without losing the search text. |
 | Sheets | **Print Set Manager** | Shows which sheets and views belong to each print set and lets you edit them from one window: add or remove sheets, keep or drop any non-sheet view (floor plan, 3D view...) already in the set, create, rename or delete sets, and sort the sheet list by any sheet parameter, without opening the Print dialog. |
@@ -85,7 +86,7 @@ Tools** to show them on the ribbon.
 
 Favorites starts with five tools starred: View Template Manager, Goodbye Filter, Rename
 Families, Inspect Element Graphics and Print Set Manager. Open **All Magic Tools**, star or
-unstar any of the ten tools, and the Favorites panel follows. Your stars are saved per Windows user in
+unstar any of the eleven tools, and the Favorites panel follows. Your stars are saved per Windows user in
 `%APPDATA%\pyRevit\_magictools_os_favorites.json`.
 
 ## Install
