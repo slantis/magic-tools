@@ -5,6 +5,11 @@ All notable changes to Magic Tools are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-09
+
+17 tools: Clean Explode CAD joins the Favorites panel, so All Magic Tools now lists eleven
+tools. The other changes come from a third round of testing in Revit.
+
 ### Added
 
 - **Clean Explode CAD** (Favorites, Annotate): explodes an imported DWG into native detail
@@ -120,7 +125,8 @@ Select Same Family was already in 0.0.1; the other 15 tools are new.
   pyRevit loads extensions from: update or delete an older one before installing a new one,
   or every tool shows twice.
 
-[Unreleased]: https://github.com/slantis/magic-tools/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/slantis/magic-tools/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/slantis/magic-tools/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/slantis/magic-tools/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/slantis/magic-tools/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/slantis/magic-tools/compare/v0.0.1...v0.1.0
