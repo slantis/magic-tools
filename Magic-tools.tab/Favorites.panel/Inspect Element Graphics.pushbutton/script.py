@@ -31,7 +31,7 @@ from Autodesk.Revit.DB import (
     FilteredElementCollector, ElementId,
     OverrideGraphicSettings, ViewDetailLevel,
     GraphicsStyleType, Element, BuiltInParameter,
-    ParameterFilterElement, SelectionFilterElement
+    ParameterFilterElement, SelectionFilterElement, LinePatternElement
 )
 from Autodesk.Revit.UI.Selection import ObjectType
 
@@ -172,6 +172,32 @@ def _is_prop_overridden(prop, ogs):
     return False
 
 
+def _pattern_or_element_name(eid):
+    # Name for an id-valued override (line / fill pattern, material...).
+    # The solid line pattern (-3000010) is an internal id that is not an element
+    # of the document, so doc.GetElement returns None for it: name it 'Solid'.
+    try:
+        if eid == LinePatternElement.GetSolidPatternId():
+            return 'Solid'
+    except Exception:
+        pass
+    el = doc.GetElement(eid)
+    if el is None:
+        return 'Id {}'.format(_id_val(eid))
+    # ElementType-like subclasses hide Element.Name under IronPython
+    # (see references/revit-api-gotchas.md): fall back to the base getter.
+    try:
+        name = el.Name
+    except Exception:
+        try:
+            name = Element.Name.__get__(el)
+        except Exception:
+            name = None
+    if name:
+        return name
+    return 'Id {}'.format(_id_val(eid))
+
+
 def _format_value(prop, val):
     _, _, vtype, _ = prop
     if val is None:
@@ -183,13 +209,7 @@ def _format_value(prop, val):
     if vtype == 'id':
         if val == INVALID_ID:
             return '<none>'
-        el = doc.GetElement(val)
-        if el is None:
-            return 'Id {}'.format(_id_val(val))
-        try:
-            return el.Name
-        except Exception:
-            return 'Id {}'.format(_id_val(val))
+        return _pattern_or_element_name(val)
     if vtype == 'weight':
         return 'default' if val == WEIGHT_BY_CATEGORY else str(val)
     if vtype == 'bool':
@@ -946,7 +966,9 @@ def show_inspector(element, view):
     btnPick.Click   += on_pick
     btnClose.Click  += lambda s, e: win.Close()
 
-    modeless.show(win, TITLE, doc=doc)
+    # One registry key per window: several can be open side by side to
+    # compare elements (QA round 3, 2026-10-06).
+    modeless.show(win, u'{0}#{1}'.format(TITLE, id(win)), doc=doc)
 
 
 def get_target_element():
@@ -970,8 +992,8 @@ def get_target_element():
 
 with usage.tool_run(__file__) as run:
     try:
-        if modeless.focus(TITLE):
-            script.exit()
+        # No focus() here on purpose: each click opens its own window, so two
+        # elements can be compared side by side (decided in QA round 3).
         if uidoc is None:
             ui.alert('No active document.', title='Inspect Element Graphics')
         elif doc.ActiveView is None:
@@ -982,5 +1004,5 @@ with usage.tool_run(__file__) as run:
                 show_inspector(target, doc.ActiveView)
     except Exception:
         run.error()
-        ui.alert('Inspect Element error:\n\n' + traceback.format_exc(),
-                 title='Inspect Element -- Error')
+        ui.alert('Inspect Element Graphics error:\n\n' + traceback.format_exc(),
+                 title=TITLE)

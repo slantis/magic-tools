@@ -35,15 +35,17 @@ uidoc = revit.uidoc
 
 def seed_elements():
     """The elements to match: the selection, or elements picked in one
-    multi-pick session (click adds, Shift+click removes, Tab cycles
-    overlaps, Finish/Enter confirms, Esc cancels: native PickObjects)."""
+    multi-pick session (click adds or removes, Tab cycles overlaps, Finish
+    confirms, Esc cancels: native PickObjects; Enter does NOT confirm in
+    Revit 2025)."""
     ids = list(uidoc.Selection.GetElementIds())
     if ids:
         return [doc.GetElement(i) for i in ids]
     try:
         refs = uidoc.Selection.PickObjects(
             ObjectType.Element,
-            "Pick elements to select their type, Finish to confirm")
+            "Pick elements to select their type. Click adds or removes, "
+            "Finish to confirm, Esc to cancel.")
     except OperationCanceledException:
         return []              # Esc in the pick: nothing to do
     return [doc.GetElement(r.ElementId) for r in refs]

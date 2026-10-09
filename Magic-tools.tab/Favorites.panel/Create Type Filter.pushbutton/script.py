@@ -35,14 +35,15 @@ from System.Collections.Generic import List, HashSet
 from System.Collections.ObjectModel import ObservableCollection
 from System.ComponentModel import INotifyPropertyChanged, PropertyChangedEventArgs
 from System.Windows import Visibility, RoutedEventHandler
+from System.Windows.Media import SolidColorBrush, ColorConverter
 from System.Windows.Controls import CheckBox as _CheckBox
 
 from slantisui import ui
 import vgrow
 import usage
 
-
 with usage.tool_run(__file__) as run:
+
     doc = revit.doc
     uidoc = revit.uidoc
 
@@ -171,20 +172,36 @@ with usage.tool_run(__file__) as run:
         u", ".join(sorted(category_names)), u", ".join(_sorted_types)
     )
 
+    def _singular_category(name):
+        # Revit category names are plural ("Rooms", "Assemblies"); with a count of
+        # 1 they should read "1 Room", "1 Assembly". Names that do not end in "s"
+        # (Casework) and the "ss" ones (Mass) are left as they are.
+        if name.endswith(u"ies") and len(name) > 3:
+            return name[:-3] + u"y"
+        if name.endswith(u"s") and not name.endswith(u"ss"):
+            return name[:-1]
+        return name
+
+
+    def _count_category(n, name):
+        return u"{} {}".format(n, _singular_category(name) if n == 1 else name)
+
+
     _excluded_notes = []
     for _cat_name, _n in sorted(excluded_no_type.items()):
         _excluded_notes.append(
-            u"⚠ Left out: {} {} (no type)".format(_n, _cat_name))
+            u"⚠ Left out: {} (no type)".format(_count_category(_n, _cat_name)))
     for _cat_name, _n in sorted(excluded_not_filterable.items()):
         _excluded_notes.append(
-            u"⚠ Left out: {} {} (Revit does not filter this category)"
-            .format(_n, _cat_name))
+            u"⚠ Left out: {} (Revit does not filter this category)"
+            .format(_count_category(_n, _cat_name)))
     if excluded_uncategorized:
         _excluded_notes.append(
             u"⚠ Left out: {} element{} with no category"
             .format(excluded_uncategorized, u"" if excluded_uncategorized == 1 else u"s"))
-    if _excluded_notes:
-        detected_text = detected_text + u"\n\n" + u"\n".join(_excluded_notes)
+    # The "Left out" lines go in their own warning-coloured block (lblLeftOut),
+    # not appended to the grey DETECTED text, so they are not missed.
+    left_out_text = u"\n".join(_excluded_notes)
 
     existing_names = set(
         f.Name for f in FilteredElementCollector(doc).OfClass(ParameterFilterElement)
@@ -350,11 +367,11 @@ with usage.tool_run(__file__) as run:
     def _controls_filters(template):
         """Whether this view template drives the Filters of the views using it.
 
-    Returns True, False, or None when Revit would not answer. None must
-    never be read as False: "not controlled" is exactly what sends the
-    filter to the view, so a silent guess there rebuilds this bug from the
-    other side.
-    """
+Returns True, False, or None when Revit would not answer. None must
+never be read as False: "not controlled" is exactly what sends the
+filter to the view, so a silent guess there rebuilds this bug from the
+other side.
+"""
         if template is None:
             return False
         try:
@@ -397,11 +414,11 @@ with usage.tool_run(__file__) as run:
 
     class TargetRow(INotifyPropertyChanged):
         """One row of the "Apply to" grid: a checkbox, a name and an optional
-    Note (only the active view row carries one -- see `_active_note` above).
-    `target` is the element that will actually get the filter: for the
-    active view row it may already be its template (`_active_effective_
-    target`), never the raw `doc.ActiveView` when the template governs it.
-    """
+Note (only the active view row carries one -- see `_active_note` above).
+`target` is the element that will actually get the filter: for the
+active view row it may already be its template (`_active_effective_
+target`), never the raw `doc.ActiveView` when the template governs it.
+"""
 
         def __init__(self, target, name, note):
             self.target = target
@@ -481,6 +498,9 @@ with usage.tool_run(__file__) as run:
         <TextBlock Text="DETECTED" Style="{StaticResource SectionHead}"/>
         <TextBlock x:Name="lblDetected" TextWrapping="Wrap" FontSize="11.5"
                    Foreground="#77736C"/>
+        <TextBlock x:Name="lblLeftOut" TextWrapping="Wrap" FontSize="11.5"
+                   FontWeight="SemiBold" Margin="0,6,0,0"
+                   Visibility="Collapsed"/>
       </StackPanel>
     </Grid>
 
@@ -590,6 +610,7 @@ with usage.tool_run(__file__) as run:
 
     txt_name        = win.FindName("txtName")
     lbl_detected    = win.FindName("lblDetected")
+    lbl_left_out    = win.FindName("lblLeftOut")
     txt_tgt_filter  = win.FindName("txtTargetFilter")
     grid_targets    = win.FindName("gridTargets")
     lbl_count       = win.FindName("lblCount")
@@ -599,6 +620,12 @@ with usage.tool_run(__file__) as run:
     txt_name.Text = proposed_name
     txt_name.SelectAll()
     lbl_detected.Text = detected_text
+    if left_out_text:
+        # Warning token from the lib, never a hex literal (resolved per theme).
+        lbl_left_out.Foreground = SolidColorBrush(
+            ColorConverter.ConvertFromString(ui.STATUS_WARN))
+        lbl_left_out.Text = left_out_text
+        lbl_left_out.Visibility = Visibility.Visible
 
     # The filter does not exist yet, so the editor starts from a blank OGS.
     _blank = OverrideGraphicSettings()

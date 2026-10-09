@@ -30,6 +30,19 @@ with usage.tool_run(__file__) as run:
 
     # --- Second click on a view already in temporary mode: act as a restore ---
     if view.IsTemporaryViewPropertiesModeEnabled():
+        # Did this tool put the mode on? It does so by turning EVERY filter of the
+        # view off inside the temporary mode, so "all filters disabled" is the
+        # signature. If not, the user turned the mode on by hand: it still gets
+        # switched off (same behavior), but the message must not claim filters
+        # were restored. Read-only and wrapped: it can never block the restore.
+        put_by_tool = False
+        try:
+            applied = list(view.GetFilters())
+            put_by_tool = bool(applied) and all(
+                not view.GetIsFilterEnabled(fid) for fid in applied)
+        except Exception:
+            put_by_tool = False
+
         t = DB.Transaction(doc, "Goodbye Filter - Restore View Properties")
         t.Start()
         try:
@@ -44,7 +57,11 @@ with usage.tool_run(__file__) as run:
                 context=u"Error: {}".format(str(ex))
             )
             script.exit()
-        ui.alert("Filters restored.", title="Goodbye Filter")
+        if put_by_tool:
+            ui.alert("Filters restored.", title="Goodbye Filter")
+        else:
+            ui.alert("Temporary view properties turned off.",
+                     title="Goodbye Filter")
         script.exit()
 
     # --- Nothing to turn off ---
@@ -67,7 +84,8 @@ with usage.tool_run(__file__) as run:
     t.Start()
     try:
         vt_id = view.ViewTemplateId
-        if vt_id and vt_id != DB.ElementId.InvalidElementId:
+        has_template = bool(vt_id and vt_id != DB.ElementId.InvalidElementId)
+        if has_template:
             # View has a template -> pass it: same appearance, now temporarily editable
             entered = view.EnableTemporaryViewPropertiesMode(vt_id)
         else:
@@ -80,13 +98,25 @@ with usage.tool_run(__file__) as run:
         # temporary mode is confirmed on.
         if not entered or not view.IsTemporaryViewPropertiesModeEnabled():
             t.RollBack()
-            ui.alert(
-                "Could not enable temporary filters for this view.",
-                title="Goodbye Filter",
-                context=u"Nothing was changed. Try Enable Temporary View "
-                        u"Properties from the Properties palette to check "
-                        u"whether this view supports it."
-            )
+            if has_template:
+                ui.alert(
+                    "Could not enable temporary filters for this view.",
+                    title="Goodbye Filter",
+                    context=u"Nothing was changed. Try Temporary View "
+                            u"Properties from the view control bar (at the "
+                            u"bottom of the view) to check whether this view "
+                            u"supports it."
+                )
+            else:
+                # No template: Revit 2025 does not turn the mode on through the
+                # API for such a view (it can from the UI), so say why.
+                ui.alert(
+                    "This view has no view template, so its filters can't be "
+                    "turned off temporarily.",
+                    title="Goodbye Filter",
+                    context=u"Nothing was changed. Assign a view template to "
+                            u"this view and try again."
+                )
             script.exit()
 
         count = 0

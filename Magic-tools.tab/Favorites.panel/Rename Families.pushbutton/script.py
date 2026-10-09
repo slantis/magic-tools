@@ -229,7 +229,8 @@ CONNECTORS = set([u"and", u"or", u"to", u"of", u"w"])
 # rename_acronyms.json (which an existing install seeded with the first 21 only,
 # so these must not depend on that file being re-seeded).
 BUILTIN_ACRONYMS = set([
-    u"DWV", u"EMT", u"HMC", u"HSS", u"LED", u"MLO", u"NEMA", u"PVC", u"VAV",
+    u"DWV", u"EMT", u"GFCI", u"HMC", u"HSS", u"LED", u"MLO", u"NEMA", u"PVC",
+    u"VAV",
 ])
 
 
@@ -269,18 +270,52 @@ def title_word(word, acronyms, first=False, shouting=False):
     return word[0].upper() + word[1:].lower()
 
 
+CODE_PART = re.compile(u"[-_./]+")
+# A code is short (MTT-A, W12, HSS-4X4). A long glued name with a number in it
+# (00-AN-ADDRESS-APARTMENT) is a family name and still gets Title Case.
+CODE_MAX_LEN = 8
+
+
+def is_code(text):
+    """A one-token name that reads as a code, not a word: it has a digit (W12,
+    HSS-4X4) or is short parts glued by -_./ (MTT-A). QA round 3 asked for
+    codes to stay exactly as they are. A plain word with no spaces (DOOR) is not a
+    code and still gets Title Case; an acronym like GFCI goes in the list."""
+    t = text.strip()
+    if not t or u" " in t or len(t) > CODE_MAX_LEN:
+        return False
+    if any(ch.isdigit() for ch in t):
+        return True
+    parts = [p for p in CODE_PART.split(t) if p]
+    return len(parts) >= 2 and all(len(p) <= 3 for p in parts)
+
+
+def _has_digit(word):
+    return word is not None and any(ch.isdigit() for ch in word)
+
+
 def title_case(text, acronyms):
-    """Title Case a name, keeping its separators exactly where they were."""
+    """Title Case a name, keeping its separators exactly where they were.
+
+    A code (is_code: MTT-A, W12, HSS-4X4) comes back exactly as typed. An "x"
+    between two numbers is the "by" of a size (36" x 84") and stays lower;
+    anywhere else it is a word like any other (Type X Gypsum).
+    """
+    if is_code(text):
+        return text
     letters = text.lower() != text.upper()
     shouting = letters and text == text.upper()
-    out = []
-    first = True
-    for piece in WORD_SPLIT.split(text):
-        if not piece or WORD_SPLIT.match(piece):
-            out.append(piece)                  # empty or a separator run: as is
+    pieces = WORD_SPLIT.split(text)
+    words = [i for i, p in enumerate(pieces) if p and not WORD_SPLIT.match(p)]
+    out = list(pieces)                         # separators stay as they are
+    for n, i in enumerate(words):
+        piece = pieces[i]
+        prev_w = pieces[words[n - 1]] if n > 0 else None
+        next_w = pieces[words[n + 1]] if n + 1 < len(words) else None
+        if piece.lower() == u"x" and _has_digit(prev_w) and _has_digit(next_w):
+            out[i] = u"x"
         else:
-            out.append(title_word(piece, acronyms, first, shouting))
-            first = False
+            out[i] = title_word(piece, acronyms, n == 0, shouting)
     return u"".join(out)
 
 
