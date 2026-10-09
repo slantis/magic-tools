@@ -34,7 +34,7 @@ NOON = DAY + 12 * 3600
 # .pushbutton. A new tool makes test_known_tools fail on purpose: add its name
 # to the server whitelist (see ADDING A TOOL in lib/telemetry.py), then here.
 KNOWN_TOOLS = sorted([
-    'All Magic Tools', 'Cloud Manager', 'Create Type Filter', 'Find Room',
+    'All Magic Tools', 'Clean Explode CAD', 'Cloud Manager', 'Create Type Filter', 'Find Room',
     'Goodbye Filter', 'Inspect Element Graphics', 'Inspect Model Overrides',
     'Inspect View Overrides', 'Next Sheet', 'Parent Sheet', 'Previous Sheet',
     'Print Set Manager', 'Rename Families', 'Select Same Family',

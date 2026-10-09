@@ -16,7 +16,8 @@
  {
   "group": "Annotate",
   "tools": [
-   "Cloud Manager"
+   "Cloud Manager",
+   "Clean Explode CAD"
   ]
  },
  {
