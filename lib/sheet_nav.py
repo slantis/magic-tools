@@ -3,17 +3,28 @@
 sheet_nav.py - shared helper for Previous Sheet / Next Sheet tools.
 
 Returns the list of sheets in the order AND with the filter that
-the current Project Browser organization has active.
+the current Project Browser organization has active, read from the
+public BrowserOrganization API (checked in the 2022 to 2026 API):
+  - AreFiltersSatisfied(id)      -> is the sheet shown by the browser filter
+  - GetFolderItems(id)           -> the folder path the sheet sits in
+  - SortingParameterId / SortingOrder -> the sort inside each folder
 
-The Revit API surface on BrowserOrganization is limited and undocumented
-in parts, so every step tries the most likely API and falls back gracefully.
+Folders are ordered ascending by name and every text compares in natural
+order (A-2 before A-10). Both are the closest guess to what the browser
+draws; they still need to be checked against the browser in Revit.
 """
+import re
+import traceback
+
 import clr
 clr.AddReference('RevitAPI')
 from Autodesk.Revit.DB import (
     FilteredElementCollector, ViewSheet, Viewport,
-    BrowserOrganization, StorageType,
+    BrowserOrganization, SortingOrder, StorageType,
 )
+
+_DIGITS = re.compile(r'([0-9]+)')
+
 
 def _id_val(eid):
     # ElementId value compat Revit 2022-2026 (IntegerValue removed in 2026)
@@ -23,115 +34,49 @@ def _id_val(eid):
         return eid.IntegerValue
 
 
-
-def _try_apply_filter(doc, bo, sheets):
-    """
-    Attempt to read the ElementFilter stored in the active browser
-    organization and use it to drop sheets that the browser hides.
-
-    BrowserOrganization may expose filter ids via:
-      - bo.GetFilters()               -> IList<ElementId>
-      - bo.Filter                     -> single ElementId
-      - a parameter named 'Filter'    -> ElementId value
-
-    Each filter element (typically ParameterFilterElement) exposes
-    GetElementFilter() -> ElementFilter, which we then apply.
-
-    If none of these work we return the original list unchanged.
-    """
-    try:
-        filter_ids = []
-
-        if hasattr(bo, 'GetFilters'):
-            ids = bo.GetFilters()
-            if ids:
-                filter_ids = list(ids)
-
-        if not filter_ids and hasattr(bo, 'Filter'):
-            fid = bo.Filter
-            if fid and _id_val(fid) > 0:
-                filter_ids = [fid]
-
-        if not filter_ids:
-            # Last resort: scan parameters for one whose value is an ElementId
-            # pointing to a ParameterFilterElement
-            from Autodesk.Revit.DB import ParameterFilterElement, StorageType as ST
-            for p in bo.Parameters:
-                if p.StorageType == ST.ElementId:
-                    eid = p.AsElementId()
-                    if eid and _id_val(eid) > 0:
-                        candidate = doc.GetElement(eid)
-                        if isinstance(candidate, ParameterFilterElement):
-                            filter_ids = [eid]
-                            break
-
-        if not filter_ids:
-            return sheets  # No filter found - show all
-
-        # Apply each filter (AND logic, same as Revit)
-        result = list(sheets)
-        for fid in filter_ids:
-            fe = doc.GetElement(fid)
-            if fe is None or not hasattr(fe, 'GetElementFilter'):
-                continue
-            ef = fe.GetElementFilter()
-            if ef is None:
-                continue
-            # PassesFilter accepts an Element directly
-            try:
-                result = [s for s in result if ef.PassesFilter(s)]
-            except Exception:
-                # Fallback: some ElementFilters require (Document, ElementId)
-                try:
-                    result = [s for s in result if ef.PassesFilter(doc, s.Id)]
-                except Exception:
-                    pass  # Skip this filter if both signatures fail
-
-        return result
-
-    except Exception:
-        return sheets  # Any failure -> return unfiltered
+def _natural_key(text):
+    """Sort key where digit runs compare as numbers: A-2 before A-10."""
+    # split() with a capturing group puts the digit runs at the odd indexes
+    return tuple((0, int(c), u"") if i % 2 else (1, 0, c.lower())
+                 for i, c in enumerate(_DIGITS.split(text or u"")) if c)
 
 
-def _try_apply_sort(bo, sheets):
-    """
-    Attempt to sort the sheet list using the primary sort criterion from the
-    active browser organization.
-
-    BrowserOrganization.GetSortingAndGroupingCriteria() should return
-    IList<FolderItemInfo> where each item has:
-      - ParameterId : ElementId of the parameter used for sorting/grouping
-      - IsAscending : bool
-
-    Falls back to SheetNumber (string) sort if the API is not available.
-    """
-    try:
-        criteria = bo.GetSortingAndGroupingCriteria()
-        if criteria is None or criteria.Count == 0:
-            raise AttributeError("No criteria")
-
-        primary = criteria[0]
-        param_id  = primary.ParameterId
-        ascending = getattr(primary, 'IsAscending', True)
-
-        def sort_key(sheet):
-            p = sheet.get_Parameter(param_id)
-            if p is None:
-                return ""
+def _param_text(sheet, param_id):
+    """Value of the browser's sorting parameter on this sheet, as text.
+    Matched by Parameter.Id so built-in, project and shared parameters
+    all work the same way."""
+    target = _id_val(param_id)
+    for p in sheet.Parameters:
+        if _id_val(p.Id) == target:
             if p.StorageType == StorageType.String:
-                return p.AsString() or ""
-            if p.StorageType == StorageType.Integer:
-                # Return as zero-padded string so numeric order is preserved
-                return "{:020d}".format(p.AsInteger())
-            if p.StorageType == StorageType.Double:
-                return "{:030.10f}".format(p.AsDouble())
-            return p.AsValueString() or ""
+                return p.AsString() or u""
+            return p.AsValueString() or u""
+    return u""
 
-        return sorted(sheets, key=sort_key, reverse=not ascending)
 
-    except Exception:
-        # Default: sort by SheetNumber (matches Revit's default browser order)
-        return sorted(sheets, key=lambda s: s.SheetNumber)
+def _folder_key(bo, sheet):
+    return tuple(_natural_key(f.Name) for f in bo.GetFolderItems(sheet.Id))
+
+
+def _browser_order(bo, sheets):
+    """Filter and sort `sheets` (already in sheet number order) like the browser."""
+    shown = [s for s in sheets if bo.AreFiltersSatisfied(s.Id)]
+
+    # Stable sorts, least significant first: sheet number (already applied),
+    # then the sorting parameter, then the folder path.
+    # Ties keep sheet number order explicitly (the position goes in the key),
+    # so a descending sort does not depend on reverse=True being stable.
+    param_id = bo.SortingParameterId
+    if param_id is not None and _id_val(param_id) != -1:
+        pos = dict((_id_val(s.Id), i) for i, s in enumerate(shown))
+        if bo.SortingOrder == SortingOrder.Descending:
+            shown.sort(key=lambda s: (_natural_key(_param_text(s, param_id)),
+                                      -pos[_id_val(s.Id)]), reverse=True)
+        else:
+            shown.sort(key=lambda s: (_natural_key(_param_text(s, param_id)),
+                                      pos[_id_val(s.Id)]))
+    shown.sort(key=lambda s: _folder_key(bo, s))
+    return shown
 
 
 def get_browser_sheets(doc):
@@ -139,24 +84,28 @@ def get_browser_sheets(doc):
     Return the list of non-placeholder sheets visible in the Project Browser,
     in the order the browser shows them, with the active filter applied.
 
-    If the BrowserOrganization API does not expose the needed information,
-    falls back to all sheets sorted by SheetNumber.
+    If the browser organization cannot be read, falls back to all sheets
+    in sheet number order.
     """
-    all_sheets = [
-        s for s in FilteredElementCollector(doc)
-            .OfClass(ViewSheet)
-            .WhereElementIsNotElementType()
-            .ToElements()
-        if not s.IsPlaceholder
-    ]
+    sheets = sorted(
+        [s for s in FilteredElementCollector(doc)
+             .OfClass(ViewSheet)
+             .WhereElementIsNotElementType()
+             .ToElements()
+         if not s.IsPlaceholder],
+        key=lambda s: _natural_key(s.SheetNumber),
+    )
 
     try:
         bo = BrowserOrganization.GetCurrentBrowserOrganizationForSheets(doc)
-        sheets = _try_apply_filter(doc, bo, all_sheets)
-        sheets = _try_apply_sort(bo, sheets)
-        return sheets
+        if bo is None:
+            return sheets
+        return _browser_order(bo, sheets)
     except Exception:
-        return sorted(all_sheets, key=lambda s: s.SheetNumber)
+        # All or nothing: a half-read organization would give a mixed order.
+        from pyrevit import script
+        script.get_logger().debug(traceback.format_exc())
+        return sheets
 
 
 def get_current_sheet(doc, uidoc):

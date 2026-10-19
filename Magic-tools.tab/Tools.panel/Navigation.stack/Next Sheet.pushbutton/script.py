@@ -18,7 +18,7 @@ with usage.tool_run(__file__) as run:
         sheets = get_browser_sheets(doc)
 
         if not sheets:
-            ui.alert("No sheets found in the model.", title="Next Sheet")
+            ui.alert("No sheets visible in the Project Browser. Check its filter.", title="Next Sheet")
             script.exit()
 
         current_sheet = get_current_sheet(doc, uidoc)
