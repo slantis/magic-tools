@@ -5,6 +5,16 @@ All notable changes to Magic Tools are listed here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Next Sheet** and **Previous Sheet** follow the Project Browser: same folders, same
+  sort inside each folder and same filter. Before, they always fell back to sheet number
+  order as text and ignored the filter. If the browser organization cannot be read, they
+  fall back to natural number order (A-2 before A-10).
+- **Parent Sheet** finds schedules and panel schedules placed on a sheet, not only views,
+  and when the active view (a legend, for example) is on more than one sheet it lets you
+  pick which one to open.
+
 ## [0.3.0] - 2026-10-09
 
 17 tools: Clean Explode CAD joins the Favorites panel, so All Magic Tools now lists eleven
